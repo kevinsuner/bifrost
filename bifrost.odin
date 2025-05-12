@@ -5,6 +5,15 @@ import "core:os"
 import "core:fmt"
 import "core:strings"
 
+// TODO:
+// - Parse HTTP url into an HttpUrl structure 
+//      - <protocol>://<hostname><path>?<params>
+//      - HttpUrl { Proto, Host, Path, Params }
+//      - https://github.com/golang/go/blob/master/src/net/url/url.go
+// - Refactor build_http_request to take HttpUrl and Headers (map) as parameters
+// - Parse HTTP response headers and body into an HttpResponse structure
+// - Create a procedure to perform a dynamically allocated HTTP GET request
+
 build_http_request :: proc(parsed_endpoint: net.Endpoint) -> []u8 {
   builder := strings.builder_make()
   strings.write_string(&builder, "GET / HTTP/1.1\r\n")
@@ -44,17 +53,6 @@ receive_http_response :: proc(sock: net.TCP_Socket, response: []u8) -> bool {
   }
   return true
 }
-
-/* extract_status_code :: proc(response: string) -> int {
-  index := strings.index(response, "HTTP/1.0")
-  if index != -1 {
-    status_line, _ := strings.substring_from(response, index)
-    status_code := strings.split(status_line, " ")[1]
-    return strconv.atoi(status_code)
-  }
-  
-  return 0
-}*/
 
 main :: proc() {
   parsed_endpoint, ok_parse := net.parse_endpoint("0.0.0.0:8000")
