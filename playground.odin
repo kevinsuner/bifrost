@@ -98,21 +98,73 @@ _extract_host_from_url :: proc(raw_url: string) -> (host, remainder: string, ok:
     return "", raw_url, false
 }
 
+_percent_encode_url :: proc(raw_url: string) -> (path: string) {
+    builder := strings.builder_make()
+    defer strings.builder_destroy(&builder)
+
+    for char, idx in raw_url {
+        switch {
+        case char == ' ':
+            strings.write_string(&builder, "%20")
+
+        case char == ';':
+            strings.write_string(&builder, "%3B")
+
+        case char == ':':
+            strings.write_string(&builder, "%3A")
+
+        case char == '[':
+            strings.write_string(&builder, "%5B")
+
+        case char == ']':
+            strings.write_string(&builder, "%5D")
+
+        case char == '{':
+            strings.write_string(&builder, "%7B")
+
+        case char == '}':
+            strings.write_string(&builder, "%7D")
+
+        case char == '<':
+            strings.write_string(&builder, "%3C")
+
+        case char == '>':
+            strings.write_string(&builder, "%3E")
+
+        case char == '\\':
+            strings.write_string(&builder, "%5C")
+
+        case char == '^':
+            strings.write_string(&builder, "%5E")
+
+        case char == '`':
+            strings.write_string(&builder, "%60")
+
+        case char == '"':
+            strings.write_string(&builder, "%22")
+
+        case:
+            strings.write_rune(&builder, char)
+        }
+    }
+    return strings.to_string(builder)
+}
+
 @(test)
 test_string_contains_control_character :: proc(t: ^testing.T) {
-    ok := _string_contains_control_character("http://foo.com/?foo\nbar")
+    ok := _string_contains_control_character("http://foo.com/bar?foo\nbar")
     testing.expect_value(t, ok, true)
 
-    ok = _string_contains_control_character("http\r://foo.com/")
+    ok = _string_contains_control_character("http\r://foo.com/bar")
     testing.expect_value(t, ok, true)
 
-    ok = _string_contains_control_character("http://foo\x7f.com/")
+    ok = _string_contains_control_character("http://foo\x7f.com/bar")
     testing.expect_value(t, ok, true)
 
-    ok = _string_contains_control_character("http://foo.com/?foo&bar")
+    ok = _string_contains_control_character("http://foo.com/bar?foo&bar")
     testing.expect_value(t, ok, false)
 
-    ok = _string_contains_control_character("http://foo.com/") 
+    ok = _string_contains_control_character("http://foo.com/bar") 
     testing.expect_value(t, ok, false)
 }
 
@@ -181,6 +233,11 @@ test_extract_host_from_url :: proc(t: ^testing.T) {
     testing.expect_value(t, remainder, "bar?foo=bar")
     testing.expect_value(t, ok, true)
 
+    host, remainder, ok = _extract_host_from_url("//foo.com/foo/bar?foo=bar")
+    testing.expect_value(t, host, "foo.com")
+    testing.expect_value(t, remainder, "foo/bar?foo=bar")
+    testing.expect_value(t, ok, true)
+
     host, remainder, ok = _extract_host_from_url("//.foo.com/bar?foo=bar")
     testing.expect_value(t, host, "")
     testing.expect_value(t, remainder, "//.foo.com/bar?foo=bar")
@@ -216,6 +273,73 @@ test_extract_host_from_url :: proc(t: ^testing.T) {
     testing.expect_value(t, remainder, "//f_oo.com/bar?foo=bar")
     testing.expect_value(t, ok, false)
 }
+
+@(test)
+test_percent_encode_url :: proc(t: ^testing.T) {
+    path := _percent_encode_url("foo/bar?foo=bar")
+    testing.expect_value(t, path, "foo/bar?foo=bar")
+
+    path = _percent_encode_url("foo/bar?foo=123")
+    testing.expect_value(t, path, "foo/bar?foo=123")
+
+    path = _percent_encode_url("foo/bar?foo=bar&fizz=buzz")
+    testing.expect_value(t, path, "foo/bar?foo=bar&fizz=buzz")
+
+    path = _percent_encode_url("foo/bar?foo=bar&fizz=buzz+123")
+    testing.expect_value(t, path, "foo/bar?foo=bar&fizz=buzz+123")
+
+    path = _percent_encode_url("foo/bar-?foo=bar-")
+    testing.expect_value(t, path, "foo/bar-?foo=bar-")
+
+    path = _percent_encode_url("foo/bar_?foo=bar_")
+    testing.expect_value(t, path, "foo/bar_?foo=bar_")
+
+    path = _percent_encode_url("foo/bar.?foo=bar.")
+    testing.expect_value(t, path, "foo/bar.?foo=bar.")
+
+    path = _percent_encode_url("foo/bar~?foo=bar~")
+    testing.expect_value(t, path, "foo/bar~?foo=bar~")
+
+    path = _percent_encode_url("foo/bar ?foo=bar ")
+    testing.expect_value(t, path, "foo/bar%20?foo=bar%20")
+
+    path = _percent_encode_url("foo/bar;?foo=bar;")
+    testing.expect_value(t, path, "foo/bar%3B?foo=bar%3B")
+
+    path = _percent_encode_url("foo/bar:?foo=bar:")
+    testing.expect_value(t, path, "foo/bar%3A?foo=bar%3A")
+
+    path = _percent_encode_url("foo/bar[?foo=bar[")
+    testing.expect_value(t, path, "foo/bar%5B?foo=bar%5B")
+
+    path = _percent_encode_url("foo/bar]?foo=bar]")
+    testing.expect_value(t, path, "foo/bar%5D?foo=bar%5D")
+
+    path = _percent_encode_url("foo/bar{?foo=bar{")
+    testing.expect_value(t, path, "foo/bar%7B?foo=bar%7B")
+
+    path = _percent_encode_url("foo/bar}?foo=bar}")
+    testing.expect_value(t, path, "foo/bar%7D?foo=bar%7D")
+
+    path = _percent_encode_url("foo/bar<?foo=bar<")
+    testing.expect_value(t, path, "foo/bar%3C?foo=bar%3C")
+
+    path = _percent_encode_url("foo/bar>?foo=bar>")
+    testing.expect_value(t, path, "foo/bar%3E?foo=bar%3E")
+
+    path = _percent_encode_url("foo/bar\\?foo=bar\\",)
+    testing.expect_value(t, path, "foo/bar%5C?foo=bar%5C")
+
+    path = _percent_encode_url("foo/bar^?foo=bar^")
+    testing.expect_value(t, path, "foo/bar%5E?foo=bar%5E")
+
+    path = _percent_encode_url("foo/bar`?foo=bar`")
+    testing.expect_value(t, path, "foo/bar%60?foo=bar%60")
+
+    path = _percent_encode_url(`foo/bar"?foo=bar"`)
+    testing.expect_value(t, path, "foo/bar%22?foo=bar%22")
+}
+
 
 
 
