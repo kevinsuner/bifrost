@@ -13,7 +13,7 @@ HttpUrl :: struct {
 // [scheme]://[host]/[path]?[query]
 //
 // [scheme] = http | https  ✓
-// [host] = example.com     ×
+// [host] = example.com     ✓
 // [path] = foo             ×
 // [query] = ?foo=bar       ×
 
@@ -69,21 +69,21 @@ _extract_host_from_url :: proc(raw_url: string) -> (host, remainder: string, ok:
         case char == '-':
             if idx == 0 || idx == len(url)-1 {
                 // hyphen found at the beginning or end 
-                return "", url, false 
+                return "", raw_url, false 
             }
             hyphen_idx = idx
 
         case char == '.':
             if idx == 0 || idx == len(url)-1 {
                 // dot found at the beginning or end
-                return "", url, false
+                return "", raw_url, false
             }
             tld_idx = idx
 
         case char == '/':
             if idx == 0 || hyphen_idx == idx-1 || tld_idx == idx-1 {
                 // slash found at the beginning or after hyphen/dot
-                return "", url, false
+                return "", raw_url, false
             }
 
             if tld_idx != 0 {
@@ -92,10 +92,10 @@ _extract_host_from_url :: proc(raw_url: string) -> (host, remainder: string, ok:
 
         case:
             // invalid character found
-            return "", url, false
+            return "", raw_url, false
         }
     }
-    return "", url, false
+    return "", raw_url, false
 }
 
 @(test)
@@ -204,6 +204,16 @@ test_extract_host_from_url :: proc(t: ^testing.T) {
     host, remainder, ok = _extract_host_from_url("//foo/bar?foo=bar")
     testing.expect_value(t, host, "")
     testing.expect_value(t, remainder, "//foo/bar?foo=bar")
+    testing.expect_value(t, ok, false)
+
+    host, remainder, ok = _extract_host_from_url("//f oo.com/bar?foo=bar")
+    testing.expect_value(t, host, "")
+    testing.expect_value(t, remainder, "//f oo.com/bar?foo=bar")
+    testing.expect_value(t, ok, false)
+
+    host, remainder, ok = _extract_host_from_url("//f_oo.com/bar?foo=bar")
+    testing.expect_value(t, host, "")
+    testing.expect_value(t, remainder, "//f_oo.com/bar?foo=bar")
     testing.expect_value(t, ok, false)
 }
 
