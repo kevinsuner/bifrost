@@ -12,45 +12,55 @@ HttpUrl :: struct {
     fragment:   string,
 }
 
-// [scheme]://[host]/[path]?[query]
-//
-// [scheme] = http | https  ✓
-// [host] = example.com     ✓
-// [path] = foo             ✓
-// [query] = ?foo=bar       ✓
-// [fragment] = #foo        ✓
+/*
+Reports whether `s` contains any ASCII control character
 
+Inputs:
+- s: The input string
 
-// Reports whether str contains any ASCII control character. 
-_string_contains_control_character :: proc(str: string) -> (ok: bool) {
-    for _, idx in str {
-        if str[idx] < ' ' || str[idx] == 0x7f {
+Returns:
+- ok: A boolean indicating if any ASCII control character was found
+*/
+@(private)
+_string_contains_control_character :: proc(s: string) -> (ok: bool) {
+    for _, i in s {
+        if s[i] < ' ' || s[i] == 0x7f {
             return true
-        }
+        } 
     }
     return false
 }
 
-// Provided url can be in the form of scheme:path, if so, return scheme and remainder,
-// otherwise return empty string and remainder. Scheme must be ([a-zA-Z][a-zA-Z0-9+-.]*).
-_extract_scheme_from_url :: proc(raw_url: string) -> (scheme, remainder: string, ok: bool) {
-    for char, idx in raw_url {
+/*
+Extracts the scheme part from `raw_url`
+
+Inputs:
+- raw_url: The input string
+
+Returns:
+- res: The scheme
+- remainder: The rest of the string
+- ok: A boolean indicating whether the scheme was found or not
+*/
+@(private)
+_extract_scheme_from_url :: proc(raw_url: string) -> (res, remainder: string, ok: bool) {
+    for c, i in raw_url {
         switch {
-        case 'a' <= char && char <= 'z' || 'A' <= char && char <= 'Z':
+        case 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z':
             continue
 
-        case '0' <= char && char <= '9' || char == '+' || char == '-' || char == '.': 
-            // [0-9+-.] found at the beginning
-            if idx == 0 {
+        case '0' <= c && c <= '9' || c == '+' || c == '-' || c == '.':
+            if i == 0 {
+                // [0-9+-.] found at the beginning
                 return "", raw_url, false
             }
-            
-        case char == ':':
-            if idx == 0 {
+
+        case c == ':':
+            if i == 0 {
                 // colon found at the beginning
                 return "", raw_url, false
             }
-            return raw_url[:idx], raw_url[idx+1:], true
+            return raw_url[:i], raw_url[i+1:], true
 
         case:
             // invalid character found
@@ -60,141 +70,185 @@ _extract_scheme_from_url :: proc(raw_url: string) -> (scheme, remainder: string,
     return "", raw_url, false
 }
 
-_extract_host_from_url :: proc(raw_url: string) -> (host, remainder: string, ok: bool) {
-    url := strings.trim_prefix(raw_url, "//")
-    tld_idx, hyphen_idx: int
+/*
+Extracts the host part from `raw_url`
 
-    for char, idx in url {
+Inputs:
+- raw_url: The input string
+
+Returns:
+- res: The host
+- remainder: The rest of the string
+- ok: A boolean indicating whether the host was found or not
+*/
+@(private)
+_extract_host_from_url :: proc(raw_url: string) -> (res, remainder: string, ok: bool) {
+    url := strings.trim_prefix(raw_url, "//")
+    hyphen_pos, period_pos: int
+
+    for c, i in url {
         switch {
-        case 'a' <= char && char <= 'z' || 'A' <= char && char <= 'Z' || '0' <= char && char <= '9':
+        case 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9':
             continue
 
-        case char == '-':
-            if idx == 0 || idx == len(url)-1 {
-                // hyphen found at the beginning or end 
-                return "", raw_url, false 
-            }
-            hyphen_idx = idx
-
-        case char == '.':
-            if idx == 0 || idx == len(url)-1 {
-                // dot found at the beginning or end
+        case c == '-':
+            if i == 0 || i == len(url)-1 {
+                // hyphen found at the beginning or end
                 return "", raw_url, false
             }
-            tld_idx = idx
+            hyphen_pos = i
 
-        case char == '/':
-            if idx == 0 || hyphen_idx == idx-1 || tld_idx == idx-1 {
-                // slash found at the beginning or after hyphen/dot
+        case c == '.':
+            if i == 0 || i == len(url)-1 {
+                // period found at the beginning or end
+                return "", raw_url, false
+            }
+            period_pos = i
+
+        case c == '/':
+            if i == 0 || hyphen_pos == i-1 || period_pos == i-1 {
+                // slash found at the beginning or after hyphen/period
                 return "", raw_url, false
             }
 
-            if tld_idx != 0 {
-                return url[:idx], url[idx:], true
+            if period_pos != 0 {
+                return url[:i], url[i:], true
             }
 
         case:
-            // invalid character found
+            // invalid character found        
             return "", raw_url, false
         }
     }
     return "", raw_url, false
 }
 
-_percent_encode_url :: proc(raw_url: string) -> (path: string) {
-    builder := strings.builder_make()
-    defer strings.builder_destroy(&builder)
+/*
+Escapes specific characters from `raw_url` using percent-encoding
 
-    for char, idx in raw_url {
+Inputs:
+- raw_url: The input string
+
+Returns:
+- res: The percent-encoded url 
+*/
+@(private)
+_percent_encode_url :: proc(raw_url: string) -> (res: string) {
+    sb := strings.builder_make()
+    defer strings.builder_destroy(&sb)
+
+    for c, i in raw_url {
         switch {
-        case char == ' ':
-            strings.write_string(&builder, "%20")
+        case c == ' ':
+            strings.write_string(&sb, "%20")
 
-        case char == ';':
-            strings.write_string(&builder, "%3B")
+        case c == ';':
+            strings.write_string(&sb, "%3B")
 
-        case char == ':':
-            strings.write_string(&builder, "%3A")
+        case c == ':':
+            strings.write_string(&sb, "%3A")
 
-        case char == '[':
-            strings.write_string(&builder, "%5B")
+        case c == '[':
+            strings.write_string(&sb, "%5B")
 
-        case char == ']':
-            strings.write_string(&builder, "%5D")
+        case c == ']':
+            strings.write_string(&sb, "%5D")
 
-        case char == '{':
-            strings.write_string(&builder, "%7B")
+        case c == '{':
+            strings.write_string(&sb, "%7B")
 
-        case char == '}':
-            strings.write_string(&builder, "%7D")
+        case c == '}':
+            strings.write_string(&sb, "%7D")
 
-        case char == '<':
-            strings.write_string(&builder, "%3C")
+        case c == '<':
+            strings.write_string(&sb, "%3C")
 
-        case char == '>':
-            strings.write_string(&builder, "%3E")
+        case c == '>':
+            strings.write_string(&sb, "%3E")
 
-        case char == '\\':
-            strings.write_string(&builder, "%5C")
+        case c == '\\':
+            strings.write_string(&sb, "%5C")
 
-        case char == '^':
-            strings.write_string(&builder, "%5E")
+        case c == '^':
+            strings.write_string(&sb, "%5E")
 
-        case char == '`':
-            strings.write_string(&builder, "%60")
+        case c == '`':
+            strings.write_string(&sb, "%60")
 
-        case char == '"':
-            strings.write_string(&builder, "%22")
+        case c == '"':
+            strings.write_string(&sb, "%22")
 
         case:
-            strings.write_rune(&builder, char)
+            strings.write_rune(&sb, c)
         }
     }
-    return strings.to_string(builder)
+    return strings.to_string(sb)
 }
 
-parse_http_url :: proc(raw_url: string) -> (res: ^HttpUrl, ok: bool) {
-    if ok := _string_contains_control_character(raw_url); ok {
-        return nil, false
-    }
-    
-    url := new(HttpUrl)
-    remainder: string
-
-    url.scheme, remainder, ok = _extract_scheme_from_url(raw_url)
-    if !ok {
-        return nil, false
-    }
-
-    url.host, remainder, ok = _extract_host_from_url(remainder)
-    if !ok {
-        return nil, false
-    }
-
-    // TODO: move this to a proc
-    query_idx := strings.index(remainder, "?")
-    fragment_idx := strings.index(remainder, "#")
+@(private)
+_extract_path_query_fragment :: proc(raw_url: string) -> (path, query, fragment: string) {
+    query_pos := strings.index(raw_url, "?")
+    fragment_pos := strings.index(raw_url, "#")
 
     switch {
-    case query_idx != -1 && fragment_idx != -1:
-        url.path = strings.cut(remainder, 0, query_idx)
-        url.fragment = strings.cut(remainder, fragment_idx, 0)
-        cut_length := len(remainder) - len(url.path) - len(url.fragment)
-        url.query = strings.cut(remainder, query_idx, cut_length)
+    case query_pos != -1 && fragment_pos != -1:
+        // query and fragment are present
+        path = strings.cut(raw_url, 0, query_pos)
+        fragment = strings.cut(raw_url, fragment_pos, 0)
+        query = strings.cut(raw_url, query_pos, len(raw_url)-len(path)-len(fragment))
 
-    case query_idx != -1 && fragment_idx == -1:
-        url.path = strings.cut(remainder, 0, query_idx)
-        url.query = strings.cut(remainder, query_idx, 0)
+    case query_pos != -1 && fragment_pos == -1:
+        // query is present but not fragment
+        path = strings.cut(raw_url, 0, query_pos)
+        query = strings.cut(raw_url, query_pos, 0)
 
-    case query_idx == -1 && fragment_idx != -1:
-        url.path = strings.cut(remainder, 0, fragment_idx)
-        url.fragment = strings.cut(remainder, fragment_idx, 0) 
+    case query_pos == -1 && fragment_pos != -1:
+        // fragment is present but not query
+        path = strings.cut(raw_url, 0, fragment_pos)
+        fragment = strings.cut(raw_url, fragment_pos, 0)
 
     case:
-        url.path = remainder
+        // neither query nor fragment are present
+        path = raw_url
+    }
+    return path, query, fragment
+}
+
+Parse_Error :: enum i32 {
+    None,
+    // Found an ASCII control character.
+    Found_Control_Character,
+    // Unable to extract scheme part of http url.
+    Scheme_Not_Found,
+    // Scheme is neither `http` nor `https`.
+    Invalid_Scheme,
+    // Unable to extract host part of http url.
+    Host_Not_Found,
+}
+
+parse_http_url :: proc(raw_url: string) -> (res: HttpUrl, err: Parse_Error) {
+    ok := _string_contains_control_character(raw_url)
+    if ok {
+        return HttpUrl{}, Parse_Error.Found_Control_Character
     }
 
-    return url, true
+    remainder: string
+    res.scheme, remainder, ok = _extract_scheme_from_url(raw_url)
+    if !ok {
+        return HttpUrl{}, Parse_Error.Scheme_Not_Found   
+    }
+    if res.scheme != "http" && res.scheme != "https" {
+        return HttpUrl{}, Parse_Error.Invalid_Scheme
+    }
+
+    res.host, remainder, ok = _extract_host_from_url(remainder)
+    if !ok {
+        return HttpUrl{}, Parse_Error.Host_Not_Found
+    }
+
+    remainder = _percent_encode_url(remainder)
+    res.path, res.query, res.fragment = _extract_path_query_fragment(remainder)
+    return res, Parse_Error.None
 }
 
 @(test)
@@ -392,6 +446,16 @@ test_percent_encode_url :: proc(t: ^testing.T) {
 
 @(test)
 test_parse_http_url :: proc(t: ^testing.T) {
+    url, err := parse_http_url("http://foo.com/bar?foo=bar#foo")
+    if err != Parse_Error.None {
+        log.infof("err: %v\n", err) 
+    }
+    log.infof("url: %v\n", url)
+}
+
+/*
+@(test)
+test_parse_http_url :: proc(t: ^testing.T) {
     url, _ := parse_http_url("http://foo.com/bar?foo=bar#foo")
     log.infof("url: %v\n", url)
     defer free(url)
@@ -412,4 +476,4 @@ test_parse_http_url :: proc(t: ^testing.T) {
     log.infof("url: %v\n", url5)
     defer free(url5)
 }
-
+*/
