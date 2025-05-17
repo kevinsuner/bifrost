@@ -205,6 +205,26 @@ Inputs:
 Returns:
 - res: An initialized `HttpUrl` struct
 - err: An enumerated value from `Parse_Error` 
+
+Example:
+
+    import "core:fmt"
+    import "libs/bifrost"
+
+    main :: proc() {
+        fmt.printf("%v\n", bifrost.parse_http_url("http://foo.com/bar?foo=bar#foo"))
+        fmt.printf("%v\n", bifrost.parse_http_url("http://foo.com/bar?foo=bar"))
+        fmt.printf("%v\n", bifrost.parse_http_url("http://foo.com/bar"))
+        fmt.printf("%v\n", bifrost.parse_http_url("http://foo.com/"))
+    }
+
+Output:
+    
+    HttpUrl{"http", "foo.com", "/bar", "?foo=bar", "#foo"}
+    HttpUrl{"http", "foo.com", "/bar", "?foo=bar", ""}
+    HttpUrl{"http", "foo.com", "/bar", "", ""}
+    HttpUrl{"http", "foo.com", "/", "", ""}
+
 */
 parse_http_url :: proc(str: string) -> (res: HttpUrl, err: Parse_Error) {
     ok := _has_control_character(str)
