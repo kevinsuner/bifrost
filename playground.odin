@@ -2,7 +2,6 @@ package main
 
 import "core:strings"
 import "core:testing"
-import "core:log"
 
 HttpUrl :: struct {
     scheme:     string,
@@ -117,9 +116,9 @@ _extract_http_host :: proc(str: string) -> (res, remainder: string, ok: bool) {
             }
             period_pos = i
 
-        case c == '/':
+        case c == '/' || c == '?' || c == '#':
             if i == 0 || hyphen_pos == i-1 || period_pos == i-1 {
-                // slash found at the beginning or after hyphen/period
+                // [/?#] found at the beginning or after hyphen/period
                 return "", str, false
             }
 
@@ -237,212 +236,132 @@ parse_http_url :: proc(str: string) -> (res: HttpUrl, err: Parse_Error) {
 }
 
 @(test)
-test_parse_http_url :: proc(t: ^testing.T) {
-    url, err := parse_http_url("http://foo.com/bar?foo=bar#foo")
-    log.infof("url: %v\n", url)
-    log.infof("err: %v\n", err)
-}
-
-/*
-@(test)
-test_string_contains_control_character :: proc(t: ^testing.T) {
-    ok := _string_contains_control_character("http://foo.com/bar?foo\nbar")
-    testing.expect_value(t, ok, true)
-
-    ok = _string_contains_control_character("http\r://foo.com/bar")
-    testing.expect_value(t, ok, true)
-
-    ok = _string_contains_control_character("http://foo\x7f.com/bar")
-    testing.expect_value(t, ok, true)
-
-    ok = _string_contains_control_character("http://foo.com/bar?foo&bar")
-    testing.expect_value(t, ok, false)
-
-    ok = _string_contains_control_character("http://foo.com/bar") 
-    testing.expect_value(t, ok, false)
-}
-
-@(test)
-test_extract_scheme_from_url :: proc(t: ^testing.T) {
-    scheme, remainder, ok := _extract_scheme_from_url("http://foo.com/bar?foo=bar")
-    testing.expect_value(t, scheme, "http")
-    testing.expect_value(t, remainder, "//foo.com/bar?foo=bar")
-    testing.expect_value(t, ok, true)
-
-    scheme, remainder, ok = _extract_scheme_from_url("https://foo.com/bar?foo=bar")
-    testing.expect_value(t, scheme, "https")
-    testing.expect_value(t, remainder, "//foo.com/bar?foo=bar")
-    testing.expect_value(t, ok, true)
-
-    scheme, remainder, ok = _extract_scheme_from_url("ssh://foo@bar")
-    testing.expect_value(t, scheme, "ssh")
-    testing.expect_value(t, remainder, "//foo@bar")
-    testing.expect_value(t, ok, true)
-
-    scheme, remainder, ok = _extract_scheme_from_url("0http://foo.com/bar?foo=bar")
-    testing.expect_value(t, scheme, "")
-    testing.expect_value(t, remainder, "0http://foo.com/bar?foo=bar")
-    testing.expect_value(t, ok, false)
-
-    scheme, remainder, ok = _extract_scheme_from_url("+http://foo.com/bar?foo=bar")
-    testing.expect_value(t, scheme, "")
-    testing.expect_value(t, remainder, "+http://foo.com/bar?foo=bar")
-    testing.expect_value(t, ok, false)
-
-    scheme, remainder, ok = _extract_scheme_from_url("-http://foo.com/bar?foo=bar")
-    testing.expect_value(t, scheme, "")
-    testing.expect_value(t, remainder, "-http://foo.com/bar?foo=bar")
-    testing.expect_value(t, ok, false)
-
-    scheme, remainder, ok = _extract_scheme_from_url(".http://foo.com/bar?foo=bar")
-    testing.expect_value(t, scheme, "")
-    testing.expect_value(t, remainder, ".http://foo.com/bar?foo=bar")
-    testing.expect_value(t, ok, false)
-
-    scheme, remainder, ok = _extract_scheme_from_url("://foo.com/bar?foo=bar")
-    testing.expect_value(t, scheme, "")
-    testing.expect_value(t, remainder, "://foo.com/bar?foo=bar")
-    testing.expect_value(t, ok, false)
-
-    scheme, remainder, ok = _extract_scheme_from_url(" http://foo.com/bar?foo=bar")
-    testing.expect_value(t, scheme, "")
-    testing.expect_value(t, remainder, " http://foo.com/bar?foo=bar")
-    testing.expect_value(t, ok, false)
-
-    scheme, remainder, ok = _extract_scheme_from_url("ht tp://foo.com/bar?foo=bar")
-    testing.expect_value(t, scheme, "")
-    testing.expect_value(t, remainder, "ht tp://foo.com/bar?foo=bar")
-    testing.expect_value(t, ok, false)
-
-    scheme, remainder, ok = _extract_scheme_from_url("ht_tp://foo.com/bar?foo=bar")
-    testing.expect_value(t, scheme, "")
-    testing.expect_value(t, remainder, "ht_tp://foo.com/bar?foo=bar")
-    testing.expect_value(t, ok, false)
-}
-
-@(test)
-test_extract_host_from_url :: proc(t: ^testing.T) {
-    host, remainder, ok := _extract_host_from_url("//foo.com/bar?foo=bar")
-    testing.expect_value(t, host, "foo.com")
-    testing.expect_value(t, remainder, "/bar?foo=bar")
-    testing.expect_value(t, ok, true)
-
-    host, remainder, ok = _extract_host_from_url("//foo.com/foo/bar?foo=bar")
-    testing.expect_value(t, host, "foo.com")
-    testing.expect_value(t, remainder, "/foo/bar?foo=bar")
-    testing.expect_value(t, ok, true)
-
-    host, remainder, ok = _extract_host_from_url("//.foo.com/bar?foo=bar")
-    testing.expect_value(t, host, "")
-    testing.expect_value(t, remainder, "//.foo.com/bar?foo=bar")
-    testing.expect_value(t, ok, false)
-
-    host, remainder, ok = _extract_host_from_url("//foo.com./bar?foo=bar")
-    testing.expect_value(t, host, "")
-    testing.expect_value(t, remainder, "//foo.com./bar?foo=bar")
-    testing.expect_value(t, ok, false)
-
-    host, remainder, ok = _extract_host_from_url("//-foo.com/bar?foo=bar")
-    testing.expect_value(t, host, "")
-    testing.expect_value(t, remainder, "//-foo.com/bar?foo=bar")
-    testing.expect_value(t, ok, false)
-
-    host, remainder, ok = _extract_host_from_url("//foo.com-/bar?foo=bar")
-    testing.expect_value(t, host, "")
-    testing.expect_value(t, remainder, "//foo.com-/bar?foo=bar")
-    testing.expect_value(t, ok, false)
-
-    host, remainder, ok = _extract_host_from_url("//foo/bar?foo=bar")
-    testing.expect_value(t, host, "")
-    testing.expect_value(t, remainder, "//foo/bar?foo=bar")
-    testing.expect_value(t, ok, false)
-
-    host, remainder, ok = _extract_host_from_url("//f oo.com/bar?foo=bar")
-    testing.expect_value(t, host, "")
-    testing.expect_value(t, remainder, "//f oo.com/bar?foo=bar")
-    testing.expect_value(t, ok, false)
-
-    host, remainder, ok = _extract_host_from_url("//f_oo.com/bar?foo=bar")
-    testing.expect_value(t, host, "")
-    testing.expect_value(t, remainder, "//f_oo.com/bar?foo=bar")
-    testing.expect_value(t, ok, false)
-}
-
-@(test)
-test_percent_encode_url :: proc(t: ^testing.T) {
-    path := _percent_encode_url("/foo/bar?foo=bar")
-    testing.expect_value(t, path, "/foo/bar?foo=bar")
-
-    path = _percent_encode_url("/foo/bar?foo=123")
-    testing.expect_value(t, path, "/foo/bar?foo=123")
-
-    path = _percent_encode_url("/foo/bar?foo=bar&fizz=buzz")
-    testing.expect_value(t, path, "/foo/bar?foo=bar&fizz=buzz")
-
-    path = _percent_encode_url("/foo/bar?foo=bar&fizz=buzz+123")
-    testing.expect_value(t, path, "/foo/bar?foo=bar&fizz=buzz+123")
-
-    path = _percent_encode_url("/foo/bar?foo=bar&fizz=buzz#foo")
-    testing.expect_value(t, path, "/foo/bar?foo=bar&fizz=buzz#foo")
-
-    path = _percent_encode_url("/foo/bar-?foo=bar-")
-    testing.expect_value(t, path, "/foo/bar-?foo=bar-")
-
-    path = _percent_encode_url("/foo/bar_?foo=bar_")
-    testing.expect_value(t, path, "/foo/bar_?foo=bar_")
-
-    path = _percent_encode_url("/foo/bar.?foo=bar.")
-    testing.expect_value(t, path, "/foo/bar.?foo=bar.")
-
-    path = _percent_encode_url("/foo/bar~?foo=bar~")
-    testing.expect_value(t, path, "/foo/bar~?foo=bar~")
-
-    path = _percent_encode_url("/foo/bar ?foo=bar ")
-    testing.expect_value(t, path, "/foo/bar%20?foo=bar%20")
-
-    path = _percent_encode_url("/foo/bar;?foo=bar;")
-    testing.expect_value(t, path, "/foo/bar%3B?foo=bar%3B")
-
-    path = _percent_encode_url("/foo/bar:?foo=bar:")
-    testing.expect_value(t, path, "/foo/bar%3A?foo=bar%3A")
-
-    path = _percent_encode_url("/foo/bar[?foo=bar[")
-    testing.expect_value(t, path, "/foo/bar%5B?foo=bar%5B")
-
-    path = _percent_encode_url("/foo/bar]?foo=bar]")
-    testing.expect_value(t, path, "/foo/bar%5D?foo=bar%5D")
-
-    path = _percent_encode_url("/foo/bar{?foo=bar{")
-    testing.expect_value(t, path, "/foo/bar%7B?foo=bar%7B")
-
-    path = _percent_encode_url("/foo/bar}?foo=bar}")
-    testing.expect_value(t, path, "/foo/bar%7D?foo=bar%7D")
-
-    path = _percent_encode_url("/foo/bar<?foo=bar<")
-    testing.expect_value(t, path, "/foo/bar%3C?foo=bar%3C")
-
-    path = _percent_encode_url("/foo/bar>?foo=bar>")
-    testing.expect_value(t, path, "/foo/bar%3E?foo=bar%3E")
-
-    path = _percent_encode_url("/foo/bar\\?foo=bar\\",)
-    testing.expect_value(t, path, "/foo/bar%5C?foo=bar%5C")
-
-    path = _percent_encode_url("/foo/bar^?foo=bar^")
-    testing.expect_value(t, path, "/foo/bar%5E?foo=bar%5E")
-
-    path = _percent_encode_url("/foo/bar`?foo=bar`")
-    testing.expect_value(t, path, "/foo/bar%60?foo=bar%60")
-
-    path = _percent_encode_url(`/foo/bar"?foo=bar"`)
-    testing.expect_value(t, path, "/foo/bar%22?foo=bar%22")
-}
-
-@(test)
-test_parse_http_url :: proc(t: ^testing.T) {
-    url, err := parse_http_url("http://foo.com/bar?foo=bar#foo")
-    if err != Parse_Error.None {
-        log.infof("err: %v\n", err) 
+test_has_control_character :: proc(t: ^testing.T) {
+    tests := []struct{str: string, ok: bool}{
+        { "http://foo.com/bar?foo=bar#foo", false },
+        { "http://foo.com/bar?foo=bar#foo\n", true },
+        { "http://foo.com/bar?foo=bar#foo\r", true },
+        { "http://foo.com/bar?foo=bar#foo\x7f", true },
     }
-    log.infof("url: %v\n", url)
+    for test, _ in tests {
+        ok := _has_control_character(test.str)
+        testing.expect_value(t, ok, test.ok)
+    }
 }
-*/
+
+@(test)
+test_extract_http_scheme :: proc(t: ^testing.T) {
+    tests := []struct{str, res, remainder: string, ok: bool}{
+        { "http://foo.com/bar?foo=bar#foo", "http", "//foo.com/bar?foo=bar#foo", true },
+        { "https://foo.com/bar?foo=bar#foo", "https", "//foo.com/bar?foo=bar#foo", true },
+        { "0http://foo.com/bar?foo=bar#foo", "", "0http://foo.com/bar?foo=bar#foo", false },
+        { "+http://foo.com/bar?foo=bar#foo", "", "+http://foo.com/bar?foo=bar#foo", false },
+        { "-http://foo.com/bar?foo=bar#foo", "", "-http://foo.com/bar?foo=bar#foo", false },
+        { ".http://foo.com/bar?foo=bar#foo", "", ".http://foo.com/bar?foo=bar#foo", false },
+        { "://foo.com/bar?foo=bar#foo", "", "://foo.com/bar?foo=bar#foo", false },
+        { " http://foo.com/bar?foo=bar#foo", "", " http://foo.com/bar?foo=bar#foo", false },
+        { "ht tp://foo.com/bar?foo=bar#foo", "", "ht tp://foo.com/bar?foo=bar#foo", false },
+        { "ht_tp://foo.com/bar?foo=bar#foo", "", "ht_tp://foo.com/bar?foo=bar#foo", false },
+    }
+    for test, _ in tests {
+        res, remainder, ok := _extract_http_scheme(test.str)
+        testing.expect_value(t, res, test.res)
+        testing.expect_value(t, remainder, test.remainder)
+        testing.expect_value(t, ok, test.ok)
+    }
+}
+
+@(test)
+test_extract_http_host :: proc(t: ^testing.T) {
+    tests := []struct{str, res, remainder: string, ok: bool}{
+        { "//foo.com/bar?foo=bar#foo", "foo.com", "/bar?foo=bar#foo", true },
+        { "//foo.bar.com/bar?foo=bar#foo", "foo.bar.com", "/bar?foo=bar#foo", true },
+        { "//.foo.com/bar?foo=bar#foo", "", "//.foo.com/bar?foo=bar#foo", false },
+        { "//foo.com./bar?foo=bar#foo", "", "//foo.com./bar?foo=bar#foo", false },
+        { "//-foo.com/bar?foo=bar#foo", "", "//-foo.com/bar?foo=bar#foo", false },
+        { "//foo.com-/bar?foo=bar#foo", "", "//foo.com-/bar?foo=bar#foo", false },
+        { "//foo/bar?foo=bar#foo", "", "//foo/bar?foo=bar#foo", false },
+        { "//f oo.com/bar?foo=bar#foo", "", "//f oo.com/bar?foo=bar#foo", false },
+        { "//f_oo.com/bar?foo=bar#foo", "", "//f_oo.com/bar?foo=bar#foo", false },
+    }
+    for test, _ in tests {
+        res, remainder, ok := _extract_http_host(test.str)
+        testing.expect_value(t, res, test.res)
+        testing.expect_value(t, remainder, test.remainder)
+        testing.expect_value(t, ok, test.ok)
+    }
+}
+
+@(test)
+test_percent_encode_str :: proc(t: ^testing.T) {
+    tests := []struct{str, res: string}{
+        { "/bar?foo=bar #foo", "/bar?foo=bar%20#foo" },
+        { "/bar?foo=bar;#foo", "/bar?foo=bar%3B#foo" },
+        { "/bar?foo=bar:#foo", "/bar?foo=bar%3A#foo" },
+        { "/bar?foo=bar[#foo", "/bar?foo=bar%5B#foo" },
+        { "/bar?foo=bar]#foo", "/bar?foo=bar%5D#foo" },
+        { "/bar?foo=bar{#foo", "/bar?foo=bar%7B#foo" },
+        { "/bar?foo=bar}#foo", "/bar?foo=bar%7D#foo" },
+        { "/bar?foo=bar<#foo", "/bar?foo=bar%3C#foo" },
+        { "/bar?foo=bar>#foo", "/bar?foo=bar%3E#foo" },
+        { "/bar?foo=bar\\#foo", "/bar?foo=bar%5C#foo" },
+        { "/bar?foo=bar^#foo", "/bar?foo=bar%5E#foo" },
+        { "/bar?foo=bar`#foo", "/bar?foo=bar%60#foo" },
+        { `/bar?foo=bar"#foo`, "/bar?foo=bar%22#foo" },
+    }
+    for test, _ in tests {
+        res := _percent_encode_str(test.str)
+        testing.expect_value(t, res, test.res)
+    }
+}
+
+@(test)
+test_parse_http_url :: proc(t: ^testing.T) {
+    tests := []struct{str: string, res: HttpUrl, err: Parse_Error}{
+        { "http://foo.com/bar?foo=bar&bar=foo#foo", { "http", "foo.com", "/bar", "?foo=bar&bar=foo", "#foo" }, .None },
+        { "http://foo.bar.com/bar?foo=bar#foo", { "http", "foo.bar.com", "/bar", "?foo=bar", "#foo" }, .None },
+        { "http://foo.com/bar?foo=bar#foo", { "http", "foo.com", "/bar", "?foo=bar", "#foo" }, .None },
+        { "http://foo.com/bar?foo=bar #foo", { "http", "foo.com", "/bar", "?foo=bar%20", "#foo" }, .None },
+        { "http://foo.com/bar?foo=bar;#foo", { "http", "foo.com", "/bar", "?foo=bar%3B", "#foo" }, .None },
+        { "http://foo.com/bar?foo=bar:#foo", { "http", "foo.com", "/bar", "?foo=bar%3A", "#foo" }, .None },
+        { "http://foo.com/bar?foo=bar[#foo", { "http", "foo.com", "/bar", "?foo=bar%5B", "#foo" }, .None },
+        { "http://foo.com/bar?foo=bar]#foo", { "http", "foo.com", "/bar", "?foo=bar%5D", "#foo" }, .None },
+        { "http://foo.com/bar?foo=bar{#foo", { "http", "foo.com", "/bar", "?foo=bar%7B", "#foo" }, .None },
+        { "http://foo.com/bar?foo=bar}#foo", { "http", "foo.com", "/bar", "?foo=bar%7D", "#foo" }, .None },
+        { "http://foo.com/bar?foo=bar<#foo", { "http", "foo.com", "/bar", "?foo=bar%3C", "#foo" }, .None },
+        { "http://foo.com/bar?foo=bar>#foo", { "http", "foo.com", "/bar", "?foo=bar%3E", "#foo" }, .None },
+        { "http://foo.com/bar?foo=bar\\#foo", { "http", "foo.com", "/bar", "?foo=bar%5C", "#foo" }, .None },
+        { "http://foo.com/bar?foo=bar^#foo", { "http", "foo.com", "/bar", "?foo=bar%5E", "#foo" }, .None },
+        { "http://foo.com/bar?foo=bar`#foo", { "http", "foo.com", "/bar", "?foo=bar%60", "#foo" }, .None },
+        { `http://foo.com/bar?foo=bar"#foo`, { "http", "foo.com", "/bar", "?foo=bar%22", "#foo" }, .None },
+        { "http://foo.com/bar?foo=bar", { "http", "foo.com", "/bar", "?foo=bar", "" }, .None },
+        { "http://foo.com/bar#foo", { "http", "foo.com", "/bar", "", "#foo" }, .None },
+        { "http://foo.com/bar", { "http", "foo.com", "/bar", "", "" }, .None },
+        { "http://foo.com/", { "http", "foo.com", "/", "", "" }, .None },
+        { "http://foo.com?foo=bar", { "http", "foo.com", "", "?foo=bar", "" }, .None },
+        { "http://foo.com#foo", { "http", "foo.com", "", "", "#foo" }, .None },
+        { "https://foo.com/bar?foo=bar#foo", { "https", "foo.com", "/bar", "?foo=bar", "#foo" }, .None },
+        { "0http://foo.com/bar?foo=bar#foo", {}, .Scheme_Not_Found },
+        { "+http://foo.com/bar?foo=bar#foo", {}, .Scheme_Not_Found },
+        { "-http://foo.com/bar?foo=bar#foo", {}, .Scheme_Not_Found },
+        { ".http://foo.com/bar?foo=bar#foo", {}, .Scheme_Not_Found },
+        { "://foo.com/bar?foo=bar#foo", {}, .Scheme_Not_Found },
+        { " http://foo.com/bar?foo=bar#foo", {}, .Scheme_Not_Found },
+        { "ht tp://foo.com/bar?foo=bar#foo", {}, .Scheme_Not_Found },
+        { "ht_tp://foo.com/bar?foo=bar#foo", {}, .Scheme_Not_Found },
+        { "ws://foo.com/bar?foo=bar#foo", {}, .Invalid_Scheme },
+        { "http://.foo.com/bar?foo=bar#foo", {}, .Host_Not_Found },
+        { "http://foo.com./bar?foo=bar#foo", {}, .Host_Not_Found },
+        { "http://-foo.com/bar?foo=bar#foo", {}, .Host_Not_Found },
+        { "http://foo.com-/bar?foo=bar#foo", {}, .Host_Not_Found },
+        { "http://foo/bar?foo=bar#foo", {}, .Host_Not_Found },
+        { "http://f oo.com/bar?foo=bar#foo", {}, .Host_Not_Found },
+        { "http://f_oo.com/bar?foo=bar#foo", {}, .Host_Not_Found },
+    }
+    for test, _ in tests {
+        res, err := parse_http_url(test.str)
+        testing.expect_value(t, res, test.res)
+        testing.expect_value(t, err, test.err)
+    }
+}
+
