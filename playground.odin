@@ -4,6 +4,14 @@ import "core:strings"
 import "core:testing"
 import "core:log"
 
+HttpUrl :: struct {
+    scheme:     string,
+    host:       string,
+    path:       string,
+    query:      string,
+    fragment:   string,
+}
+
 Parse_Error :: enum i32 {
     None,
     // Found an ASCII control character.
@@ -16,27 +24,19 @@ Parse_Error :: enum i32 {
     Host_Not_Found,
 }
 
-HttpUrl :: struct {
-    scheme:     string,
-    host:       string,
-    path:       string,
-    query:      string,
-    fragment:   string,
-}
-
 /*
-Reports whether `s` contains any ASCII control character
+Reports whether `str` contains any ASCII control character
 
 Inputs:
-- s: The input string
+- str: The input string
 
 Returns:
 - ok: A boolean indicating if any ASCII control character was found
 */
 @(private)
-_string_contains_control_character :: proc(s: string) -> (ok: bool) {
-    for _, i in s {
-        if s[i] < ' ' || s[i] == 0x7f {
+_has_control_character :: proc(str: string) -> (ok: bool) {
+    for _, i in str {
+        if str[i] < ' ' || str[i] == 0x7f {
             return true
         } 
     }
@@ -44,19 +44,19 @@ _string_contains_control_character :: proc(s: string) -> (ok: bool) {
 }
 
 /*
-Extracts the scheme part from `raw_url`
+Extracts the http scheme part from `str`
 
 Inputs:
-- raw_url: The input string
+- str: The input string
 
 Returns:
-- res: The scheme
+- res: The http scheme
 - remainder: The rest of the string
-- ok: A boolean indicating whether the scheme was found or not
+- ok: A boolean indicating whether the http scheme was found or not
 */
 @(private)
-_extract_scheme_from_url :: proc(raw_url: string) -> (res, remainder: string, ok: bool) {
-    for c, i in raw_url {
+_extract_http_scheme :: proc(str: string) -> (res, remainder: string, ok: bool) {
+    for c, i in str {
         switch {
         case 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z':
             continue
@@ -64,92 +64,92 @@ _extract_scheme_from_url :: proc(raw_url: string) -> (res, remainder: string, ok
         case '0' <= c && c <= '9' || c == '+' || c == '-' || c == '.':
             if i == 0 {
                 // [0-9+-.] found at the beginning
-                return "", raw_url, false
+                return "", str, false
             }
 
         case c == ':':
             if i == 0 {
                 // colon found at the beginning
-                return "", raw_url, false
+                return "", str, false
             }
-            return raw_url[:i], raw_url[i+1:], true
+            return str[:i], str[i+1:], true
 
         case:
             // invalid character found
-            return "", raw_url, false
+            return "", str, false
         }
     }
-    return "", raw_url, false
+    return "", str, false
 }
 
 /*
-Extracts the host part from `raw_url`
+Extracts the http host part from `str`
 
 Inputs:
-- raw_url: The input string
+- str: The input string
 
 Returns:
-- res: The host
+- res: The http host
 - remainder: The rest of the string
-- ok: A boolean indicating whether the host was found or not
+- ok: A boolean indicating whether the http host was found or not
 */
 @(private)
-_extract_host_from_url :: proc(raw_url: string) -> (res, remainder: string, ok: bool) {
-    url := strings.trim_prefix(raw_url, "//")
+_extract_http_host :: proc(str: string) -> (res, remainder: string, ok: bool) {
+    s := strings.trim_prefix(str, "//")
     hyphen_pos, period_pos: int
 
-    for c, i in url {
+    for c, i in s {
         switch {
         case 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9':
             continue
 
         case c == '-':
-            if i == 0 || i == len(url)-1 {
+            if i == 0 || i == len(s)-1 {
                 // hyphen found at the beginning or end
-                return "", raw_url, false
+                return "", str, false
             }
             hyphen_pos = i
 
         case c == '.':
-            if i == 0 || i == len(url)-1 {
+            if i == 0 || i == len(s)-1 {
                 // period found at the beginning or end
-                return "", raw_url, false
+                return "", str, false
             }
             period_pos = i
 
         case c == '/':
             if i == 0 || hyphen_pos == i-1 || period_pos == i-1 {
                 // slash found at the beginning or after hyphen/period
-                return "", raw_url, false
+                return "", str, false
             }
 
             if period_pos != 0 {
-                return url[:i], url[i:], true
+                return s[:i], s[i:], true
             }
 
         case:
             // invalid character found        
-            return "", raw_url, false
+            return "", str, false
         }
     }
-    return "", raw_url, false
+    return "", str, false
 }
 
 /*
-Escapes specific characters from `raw_url` using percent-encoding
+Escapes specific characters from `str` using percent-encoding
 
 Inputs:
-- raw_url: The input string
+- str: The input string
 
 Returns:
-- res: The percent-encoded url 
+- res: The percent-encoded string
 */
 @(private)
-_percent_encode_url :: proc(raw_url: string) -> (res: string) {
+_percent_encode_str :: proc(str: string) -> (res: string) {
     sb := strings.builder_make()
     defer strings.builder_destroy(&sb)
 
-    for c, i in raw_url {
+    for c, i in str {
         switch {
         case c == ' ':
             strings.write_string(&sb, "%20")
@@ -197,35 +197,53 @@ _percent_encode_url :: proc(raw_url: string) -> (res: string) {
     return strings.to_string(sb)
 }
 
-parse_http_url :: proc(raw_url: string) -> (res: HttpUrl, err: Parse_Error) {
-    ok := _string_contains_control_character(raw_url)
+/*
+Parses `str` into an `HttpUrl` struct
+
+Inputs:
+- str: The input string
+
+Returns:
+- res: An initialized `HttpUrl` struct
+- err: An enumerated value from `Parse_Error` 
+*/
+parse_http_url :: proc(str: string) -> (res: HttpUrl, err: Parse_Error) {
+    ok := _has_control_character(str)
     if ok {
-        return HttpUrl{}, Parse_Error.Found_Control_Character
+        return {}, .Found_Control_Character
     }
 
     remainder: string
-    res.scheme, remainder, ok = _extract_scheme_from_url(raw_url)
+    res.scheme, remainder, ok = _extract_http_scheme(str)
     if !ok {
-        return HttpUrl{}, Parse_Error.Scheme_Not_Found   
+        return {}, .Scheme_Not_Found
     }
     if res.scheme != "http" && res.scheme != "https" {
-        return HttpUrl{}, Parse_Error.Invalid_Scheme
+        return {}, .Invalid_Scheme
     }
 
-    res.host, remainder, ok = _extract_host_from_url(remainder)
+    res.host, remainder, ok = _extract_http_host(remainder)
     if !ok {
-        return HttpUrl{}, Parse_Error.Host_Not_Found
+        return {}, .Host_Not_Found
     }
-    remainder = _percent_encode_url(remainder)
+    remainder = _percent_encode_str(remainder)
 
     // extract fragment, query and path by going backwards through the remainder,
     // ok check is omitted as the values are optional
     res.fragment, _ = strings.substring(remainder, strings.index(remainder, "#"), len(remainder))
     res.query, _ = strings.substring(remainder, strings.index(remainder, "?"), len(remainder)-len(res.fragment))
     res.path, _ = strings.substring(remainder, 0, len(remainder)-len(res.query)-len(res.fragment))
-    return res, Parse_Error.None
+    return res, .None
 }
 
+@(test)
+test_parse_http_url :: proc(t: ^testing.T) {
+    url, err := parse_http_url("http://foo.com/bar?foo=bar#foo")
+    log.infof("url: %v\n", url)
+    log.infof("err: %v\n", err)
+}
+
+/*
 @(test)
 test_string_contains_control_character :: proc(t: ^testing.T) {
     ok := _string_contains_control_character("http://foo.com/bar?foo\nbar")
@@ -426,29 +444,5 @@ test_parse_http_url :: proc(t: ^testing.T) {
         log.infof("err: %v\n", err) 
     }
     log.infof("url: %v\n", url)
-}
-
-/*
-@(test)
-test_parse_http_url :: proc(t: ^testing.T) {
-    url, _ := parse_http_url("http://foo.com/bar?foo=bar#foo")
-    log.infof("url: %v\n", url)
-    defer free(url)
-
-    url2, _ := parse_http_url("http://foo.com/bar?foo=bar")
-    log.infof("url: %v\n", url2)
-    defer free(url2)
-    
-    url3, _ := parse_http_url("http://foo.com/bar#foo")
-    log.infof("url: %v\n", url3)
-    defer free(url3)
-
-    url4, _ := parse_http_url("http://foo.com/bar")
-    log.infof("url: %v\n", url4)
-    defer free(url4)
-
-    url5, _ := parse_http_url("http://foo.com/")
-    log.infof("url: %v\n", url5)
-    defer free(url5)
 }
 */
