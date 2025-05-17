@@ -4,6 +4,18 @@ import "core:strings"
 import "core:testing"
 import "core:log"
 
+Parse_Error :: enum i32 {
+    None,
+    // Found an ASCII control character.
+    Found_Control_Character,
+    // Unable to extract scheme part of http url.
+    Scheme_Not_Found,
+    // Scheme is neither `http` nor `https`.
+    Invalid_Scheme,
+    // Unable to extract host part of http url.
+    Host_Not_Found,
+}
+
 HttpUrl :: struct {
     scheme:     string,
     host:       string,
@@ -185,47 +197,6 @@ _percent_encode_url :: proc(raw_url: string) -> (res: string) {
     return strings.to_string(sb)
 }
 
-@(private)
-_extract_path_query_fragment :: proc(raw_url: string) -> (path, query, fragment: string) {
-    query_pos := strings.index(raw_url, "?")
-    fragment_pos := strings.index(raw_url, "#")
-
-    switch {
-    case query_pos != -1 && fragment_pos != -1:
-        // query and fragment are present
-        path = strings.cut(raw_url, 0, query_pos)
-        fragment = strings.cut(raw_url, fragment_pos, 0)
-        query = strings.cut(raw_url, query_pos, len(raw_url)-len(path)-len(fragment))
-
-    case query_pos != -1 && fragment_pos == -1:
-        // query is present but not fragment
-        path = strings.cut(raw_url, 0, query_pos)
-        query = strings.cut(raw_url, query_pos, 0)
-
-    case query_pos == -1 && fragment_pos != -1:
-        // fragment is present but not query
-        path = strings.cut(raw_url, 0, fragment_pos)
-        fragment = strings.cut(raw_url, fragment_pos, 0)
-
-    case:
-        // neither query nor fragment are present
-        path = raw_url
-    }
-    return path, query, fragment
-}
-
-Parse_Error :: enum i32 {
-    None,
-    // Found an ASCII control character.
-    Found_Control_Character,
-    // Unable to extract scheme part of http url.
-    Scheme_Not_Found,
-    // Scheme is neither `http` nor `https`.
-    Invalid_Scheme,
-    // Unable to extract host part of http url.
-    Host_Not_Found,
-}
-
 parse_http_url :: proc(raw_url: string) -> (res: HttpUrl, err: Parse_Error) {
     ok := _string_contains_control_character(raw_url)
     if ok {
@@ -245,9 +216,13 @@ parse_http_url :: proc(raw_url: string) -> (res: HttpUrl, err: Parse_Error) {
     if !ok {
         return HttpUrl{}, Parse_Error.Host_Not_Found
     }
-
     remainder = _percent_encode_url(remainder)
-    res.path, res.query, res.fragment = _extract_path_query_fragment(remainder)
+
+    // extract fragment, query and path by going backwards through the remainder,
+    // ok check is omitted as the values are optional
+    res.fragment, _ = strings.substring(remainder, strings.index(remainder, "#"), len(remainder))
+    res.query, _ = strings.substring(remainder, strings.index(remainder, "?"), len(remainder)-len(res.fragment))
+    res.path, _ = strings.substring(remainder, 0, len(remainder)-len(res.query)-len(res.fragment))
     return res, Parse_Error.None
 }
 
