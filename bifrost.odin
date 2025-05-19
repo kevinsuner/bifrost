@@ -1,18 +1,18 @@
-package main
+package bifrost
 
 import "core:net"
 import "core:os"
 import "core:fmt"
 import "core:strings"
 
-// TODO:
-// - Parse HTTP url into an HttpUrl structure 
-//      - <protocol>://<hostname><path>?<params>
-//      - HttpUrl { Proto, Host, Path, Params }
-//      - https://github.com/golang/go/blob/master/src/net/url/url.go
-// - Refactor build_http_request to take HttpUrl and Headers (map) as parameters
-// - Parse HTTP response headers and body into an HttpResponse structure
-// - Create a procedure to perform a dynamically allocated HTTP GET request
+/*
+TODO:
+- Parse HTTP url into an HttpUrl struct                                 ✓
+- Create a proc to initialize an HttpRequest struct                     ×
+    - Takes HttpUrl, Headers (map[string]string), Body ([]u8)           ×
+- Parse HTTP response headers and body into an HttpResponse struct      ×
+- Create a proc to perform a dynamically allocated HTTP GET request     ×
+*/
 
 build_http_request :: proc(parsed_endpoint: net.Endpoint) -> []u8 {
   builder := strings.builder_make()
