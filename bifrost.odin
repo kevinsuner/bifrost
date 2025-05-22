@@ -456,15 +456,63 @@ test_parse_http_url :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_build_request :: proc(t: ^testing.T) {
-    tests := []struct{method: HttpMethod, url: HttpUrl, headers: []HttpHeader, body: []u8, res: string}{
+test_build_http_request :: proc(t: ^testing.T) {
+    tests := []struct{method: HttpMethod, url: HttpUrl, headers: []HttpHeader, body, res: string}{
         {
-            .Get, HttpUrl{"http", "foo.com", "/", "", ""}, nil, nil,
-            "GET http://foo.com/ HTTP/1.1\r\nHost: http://foo.com/\r\nConnection: keep-alive\r\n\r\n",
+            .Get, HttpUrl{"http", "foo.com", "/", "", ""}, nil, "",
+            "GET http://foo.com/ HTTP/1.1\r\n" +
+            "Host: http://foo.com/\r\n" +
+            "Connection: keep-alive\r\n\r\n",
+        },
+        {
+            .Get, HttpUrl{"http", "foo.com", "/bar", "", ""}, nil, "",
+            "GET http://foo.com/bar HTTP/1.1\r\n" +
+            "Host: http://foo.com/bar\r\n" +
+            "Connection: keep-alive\r\n\r\n",
+        },
+        {
+            .Get, HttpUrl{"http", "foo.com", "/bar", "?foo=bar", ""}, nil, "",
+            "GET http://foo.com/bar?foo=bar HTTP/1.1\r\n" +
+            "Host: http://foo.com/bar?foo=bar\r\n" +
+            "Connection: keep-alive\r\n\r\n",
+        },
+        {
+            .Get, HttpUrl{"http", "foo.com", "/bar", "#foo", ""}, nil, "",
+            "GET http://foo.com/bar#foo HTTP/1.1\r\n" +
+            "Host: http://foo.com/bar#foo\r\n" +
+            "Connection: keep-alive\r\n\r\n",
+        },
+        {
+            .Get, HttpUrl{"http", "foo.com", "/bar", "?foo=bar", "#foo"}, nil, "",
+            "GET http://foo.com/bar?foo=bar#foo HTTP/1.1\r\n" +
+            "Host: http://foo.com/bar?foo=bar#foo\r\n" +
+            "Connection: keep-alive\r\n\r\n",
+        },
+        {
+            .Post, HttpUrl{"http", "foo.com", "/", "", ""}, nil, `{"foo": "bar"}`,
+            "POST http://foo.com/ HTTP/1.1\r\n" +
+            "Host: http://foo.com/\r\n" +
+            "Connection: keep-alive\r\n\r\n" +
+            `{"foo": "bar"}`,
+        },
+        {
+            .Get, HttpUrl{"http", "foo.com", "/", "", ""}, []HttpHeader{{"Authorization", "123"}}, "",
+            "GET http://foo.com/ HTTP/1.1\r\n" +
+            "Host: http://foo.com/\r\n" +
+            "Connection: keep-alive\r\n" +
+            "Authorization: 123\r\n\r\n",
+        },
+        {
+            .Post, HttpUrl{"http", "foo.com", "/", "", ""}, []HttpHeader{{"Authorization", "123"}}, `{"foo": "bar"}`,
+            "POST http://foo.com/ HTTP/1.1\r\n" +
+            "Host: http://foo.com/\r\n" +
+            "Connection: keep-alive\r\n" +
+            "Authorization: 123\r\n\r\n" +
+            `{"foo": "bar"}`,
         },
     }
     for test, _ in tests {
-        request := build_http_request(test.method, test.url, test.headers, test.body)
+        request := build_http_request(test.method, test.url, test.headers, transmute([]u8)test.body)
         testing.expect_value(t, string(request), test.res)
     }
 }
