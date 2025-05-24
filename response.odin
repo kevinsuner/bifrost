@@ -104,11 +104,15 @@ test_parse_http_response :: proc(t: ^testing.T) {
         res, err := _parse_http_response(transmute([]u8)test.buf)
         if res != nil {
             testing.expect_value(t, res.status, test.res.status)
-            testing.expect_value(t, err, test.err)
+            for h, i in res.headers {
+                testing.expect_value(t, h.key, test.res.headers[i].key)
+                testing.expect_value(t, h.val, test.res.headers[i].val)
+            }
+            testing.expect_value(t, string(res.body), string(test.res.body))
             free(res)
         } else {
             testing.expect_value(t, res, test.res)
-            testing.expect_value(t, err, test.err)
         }
+        testing.expect_value(t, err, test.err)
     }
 }
