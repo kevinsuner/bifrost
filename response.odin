@@ -10,6 +10,16 @@ HttpResponse :: struct {
     body:       [dynamic]u8,
 }
 
+/*
+Parses `buf` into an `^HttpResponse` struct
+
+Inputs:
+- buf: The input bytes
+
+Returns:
+- res: A pointer to an initialized `^HttpResponse` struct
+- err: An enumerated value from `Parse_Error`
+*/
 @(private)
 _parse_http_response :: proc(buf: []u8) -> (res: ^HttpResponse, err: Parse_Error) {
     str := string(buf)
