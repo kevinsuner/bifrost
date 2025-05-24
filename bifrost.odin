@@ -3,11 +3,12 @@ package bifrost
 import "core:fmt"
 import "core:strings"
 import "core:testing"
+import "core:log"
 
 // TODO:
 // - Parse HTTP url into an HttpUrl struct                              ✓
 // - Create a proc to build an HTTP request string                      ✓
-// - Parse HTTP response headers and body into an HttpResponse struct   ×
+// - Parse HTTP response headers and body into an HttpResponse struct   ✓
 // - Create a proc to perform a dynamically allocated HTTP request      ×
 
 HttpUrl :: struct {
@@ -28,6 +29,12 @@ Parse_Error :: enum i8 {
     Invalid_Scheme,
     // Unable to extract host part of http url.
     Host_Not_Found,
+    // Unable to find response's status line.
+    Status_Line_Not_Found,
+    // Status line is wrongly formatted.
+    Invalid_Status_Line,
+    // Header is wrongly formatted.
+    Invalid_Header,
 }
 
 /*
@@ -323,6 +330,66 @@ build_http_request :: proc(method: HttpMethod, url: HttpUrl, headers: []HttpHead
     strings.write_string(&sb, "\r\n")
     strings.write_bytes(&sb, body)
     return sb.buf[:]
+}
+
+HttpResponse :: struct {
+    status: string,
+    headers: [dynamic]HttpHeader,
+    body: [dynamic]u8,
+}
+
+parse_http_response :: proc(buf: []u8) -> (res: ^HttpResponse, err: Parse_Error) {
+    str := string(buf) 
+    res = new(HttpResponse)
+    found_blank_line: bool
+
+    for line in strings.split_lines_iterator(&str) {
+        if line == "" {
+            // used as delimiter between headers and body
+            found_blank_line = true
+            continue
+        }
+
+        if res.status == "" {
+            if !strings.contains(line, "HTTP") {
+                // status line must contain HTTP
+                return nil, .Status_Line_Not_Found
+            }
+
+            arr := strings.split(line, " ")
+            defer delete(arr)
+            if len(arr) < 3 {
+                // status line must follow this format
+                // <HTTP-version> <status-code> <reason-phrase>
+                return nil, .Invalid_Status_Line
+            }
+            res.status = arr[1]
+        } else {
+            if found_blank_line {
+                append(&res.body, ..transmute([]u8)line)
+                continue
+            }
+
+            arr := strings.split_n(line, ":", 2)
+            defer delete(arr)
+            if len(arr) < 2 {
+                // headers must follow this format
+                // <key> : <val>
+                return nil, .Invalid_Header 
+            }
+            append(&res.headers, HttpHeader{arr[0], strings.trim(arr[1], " ")})
+        }
+    }
+    return res, .None
+}
+
+@(test)
+test_parse_http_response :: proc(t: ^testing.T) {
+    response := "HTTP/1.1 200 OK\r\nHost: http://foo.com/\r\nConnection: keep-alive\r\n\r\n" + `{"foo": "bar"}`
+    res, err := parse_http_response(transmute([]u8)response)
+    defer free(res)
+    log.infof("res: %v\n", res)
+    log.infof("err: %v\n", err)
 }
 
 @(test)
