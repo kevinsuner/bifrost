@@ -4,7 +4,6 @@ import "core:strings"
 import "core:fmt"
 import "core:strconv"
 import "core:testing"
-import "core:log"
 
 Parse_Error :: enum {
     None,
@@ -329,12 +328,6 @@ parse_url :: proc(str: string) -> (res: Url, err: Parse_Error) {
     res.query, _ = strings.substring(rest, strings.index(rest, "?"), len(rest) - len(res.fragment))
     res.path, _ = strings.substring(rest, 0, len(rest) - len(res.query) - len(res.fragment))
     return
-}
-
-@(test)
-test_parse_url :: proc(t: ^testing.T) {
-    url, _ := parse_url("https://odin-lang.org/")
-    log.infof("url: %v\n", url)
 }
 
 Method :: enum {
