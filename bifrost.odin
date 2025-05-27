@@ -319,8 +319,8 @@ parse_url :: proc(str: string) -> (res: Url, err: Parse_Error) {
     }
 
     res.host, rest = _extract_host(rest) or_return
-    rest = _percent_encode_str(rest)
     res.raw = fmt.tprintf("%s://%s%s", res.scheme, res.host, rest)
+    rest = _percent_encode_str(rest)
 
     res.fragment, _ = strings.substring(rest, strings.index(rest, "#"), len(rest))
     res.query, _ = strings.substring(rest, strings.index(rest, "?"), len(rest) - len(res.fragment))
