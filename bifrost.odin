@@ -5,15 +5,6 @@ import "core:fmt"
 import "core:strconv"
 import "core:testing"
 
-Url :: struct {
-    scheme:     string,
-    host:       string,
-    path:       string,
-    query:      string,
-    fragment:   string,
-    raw:        string,
-}
-
 Parse_Error :: enum {
     None,
     // Found an ASCII control character
@@ -53,6 +44,19 @@ _has_control_character :: proc(str: string) -> (err: Parse_Error) {
     return .None
 }
 
+@(test)
+test_has_control_character :: proc(t: ^testing.T) {
+    tests := []struct{str: string, err: Parse_Error}{
+        {"https://odin-lang.org/", .None},
+        {"https://odin-lang.org/\n", .Found_Control_Character},
+        {"https://odin-lang.org/\r", .Found_Control_Character},
+        {"https://odin-lang.org/\x7f", .Found_Control_Character},
+    }
+    for test, _ in tests {
+        testing.expect_value(t, _has_control_character(test.str), test.err)
+    }
+}
+
 /*
 Extracts the http scheme part from `str`
 
@@ -90,6 +94,28 @@ _extract_scheme :: proc(str: string) -> (res, rest: string, err: Parse_Error) {
         }
     }
     return "", str, .Scheme_Not_Found
+}
+
+@(test)
+test_extract_scheme :: proc(t: ^testing.T) {
+    tests := []struct{str, res, rest: string, err: Parse_Error}{
+        {"http://odin-lang.org/", "http", "//odin-lang.org/", .None},
+        {"https://odin-lang.org/", "https", "//odin-lang.org/", .None},
+        {"0https://odin-lang.org/", "", "0https://odin-lang.org/", .Scheme_Not_Found},
+        {"+https://odin-lang.org/", "", "+https://odin-lang.org/", .Scheme_Not_Found},
+        {"-https://odin-lang.org/", "", "-https://odin-lang.org/", .Scheme_Not_Found},
+        {".https://odin-lang.org/", "", ".https://odin-lang.org/", .Scheme_Not_Found},
+        {"://odin-lang.org/", "", "://odin-lang.org/", .Scheme_Not_Found},
+        {" https://odin-lang.org/", "", " https://odin-lang.org/", .Scheme_Not_Found},
+        {"h ttps://odin-lang.org/", "", "h ttps://odin-lang.org/", .Scheme_Not_Found},
+        {"h_ttps://odin-lang.org/", "", "h_ttps://odin-lang.org/", .Scheme_Not_Found},
+    }
+    for test, _ in tests {
+        res, rest, err := _extract_scheme(test.str)
+        testing.expect_value(t, res, test.res)
+        testing.expect_value(t, rest, test.rest)
+        testing.expect_value(t, err, test.err)
+    }
 }
 
 /*
@@ -143,6 +169,27 @@ _extract_host :: proc(str: string) -> (res, rest: string, err: Parse_Error) {
         }
     }
     return "", str, .Host_Not_Found
+}
+
+@(test)
+test_extract_host :: proc(t: ^testing.T) {
+    tests := []struct{str, res, rest: string, err: Parse_Error}{
+        {"//odin-lang.org/", "odin-lang.org", "/", .None},
+        {"//forum.odin-lang.org/", "forum.odin-lang.org", "/", .None},
+        {"//.odin-lang.org/", "", "//.odin-lang.org/", .Host_Not_Found},
+        {"//odin-lang.org./", "", "//odin-lang.org./", .Host_Not_Found},
+        {"//-odin-lang.org/", "", "//-odin-lang.org/", .Host_Not_Found},
+        {"//odin-lang.org-/", "", "//odin-lang.org-/", .Host_Not_Found},
+        {"//odin-lang/", "", "//odin-lang/", .Host_Not_Found},
+        {"//odin- lang.org/", "", "//odin- lang.org/", .Host_Not_Found},
+        {"//odin_lang.org/", "", "//odin_lang.org/", .Host_Not_Found},
+    }
+    for test, _ in tests {
+        res, rest, err := _extract_host(test.str)
+        testing.expect_value(t, res, test.res)
+        testing.expect_value(t, rest, test.rest)
+        testing.expect_value(t, err, test.err)
+    }
 }
 
 /*
@@ -207,6 +254,37 @@ _percent_encode_str :: proc(str: string) -> (res: string) {
     return strings.to_string(sb)
 }
 
+@(test)
+test_percent_encode_str :: proc(t: ^testing.T) {
+    tests := []struct{str, res: string}{
+        {"/docs/overview/#hellope ", "/docs/overview/#hellope%20"},
+        {"/docs/overview/#hellope;", "/docs/overview/#hellope%3B"},
+        {"/docs/overview/#hellope:", "/docs/overview/#hellope%3A"},
+        {"/docs/overview/#hellope[", "/docs/overview/#hellope%5B"},
+        {"/docs/overview/#hellope]", "/docs/overview/#hellope%5D"},
+        {"/docs/overview/#hellope{", "/docs/overview/#hellope%7B"},
+        {"/docs/overview/#hellope}", "/docs/overview/#hellope%7D"},
+        {"/docs/overview/#hellope<", "/docs/overview/#hellope%3C"},
+        {"/docs/overview/#hellope>", "/docs/overview/#hellope%3E"},
+        {"/docs/overview/#hellope\\", "/docs/overview/#hellope%5C"},
+        {"/docs/overview/#hellope^", "/docs/overview/#hellope%5E"},
+        {"/docs/overview/#hellope`", "/docs/overview/#hellope%60"},
+        {`/docs/overview/#hellope"`, "/docs/overview/#hellope%22"},
+    }
+    for test, _ in tests {
+        testing.expect_value(t, _percent_encode_str(test.str), test.res)
+    }
+}
+
+Url :: struct {
+    scheme:     string,
+    host:       string,
+    path:       string,
+    query:      string,
+    fragment:   string,
+    raw:        string,
+}
+
 /*
 Parses `str` into an `Url` struct
 
@@ -249,15 +327,6 @@ parse_url :: proc(str: string) -> (res: Url, err: Parse_Error) {
     res.path, _ = strings.substring(rest, 0, len(rest) - len(res.query) - len(res.fragment))
     return
 }
-
-/*
-@(test)
-test_parse_url :: proc(t: ^testing.T) {
-    url, err := parse_url("https://odin-lang.org/docs/overview/#hellope")
-    log.infof("url: %v\n", url)
-    log.infof("err: %v\n", err)
-}
-*/
 
 Method :: enum {
     Get,
@@ -307,20 +376,6 @@ _build_request :: proc(method: Method, url: Url, headers: map[string]string, bod
     strings.write_bytes(&sb, body)
     return sb.buf[:]
 }
-
-/*
-@(test)
-test_build_request :: proc(t: ^testing.T) {
-    url, _ := parse_url("https://odin-lang.org/docs/overview/#hellope")
-
-    headers := make(map[string]string)
-    defer delete(headers)
-    headers["connection"] = "close"
-
-    req := _build_request(.Get, url, headers, {})
-    log.infof("req: \n%s\n", req)
-}
-*/
 
 Response :: struct {
     headers:    map[string]string,
@@ -385,16 +440,3 @@ _parse_response :: proc(buf: []u8) -> (res: ^Response, err: Parse_Error) {
     return
 }
 
-/*@(test)
-test_parse_response :: proc(t: ^testing.T) {
-    //log.infof("size_of(u16): %d\n", size_of(u16))
-    //log.infof("size_of(string): %d\n", size_of(string))
-    //log.infof("size_of(map[string]string): %d\n", size_of(map[string]string))
-    //log.infof("size_of([]u8): %d\n", size_of([]u8))
-    str := "HTTP/1.1 200 OK\r\nHost: odin-lang.org\r\n\r\n" + `{"odin": "lang"}`
-    res, _ := _parse_response(transmute([]u8)str)
-    defer free(res)
-    defer delete(res.headers)
-    log.infof("res: %v\n", res)
-    log.infof("res.body: %s\n", string(res.body))
-}*/
