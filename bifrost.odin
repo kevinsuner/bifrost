@@ -333,19 +333,19 @@ _parse_response :: proc(buf: []u8) -> (res: ^Response, err: Parse_Error) {
 
         if res.status == 0 {
             if !strings.contains(line, "HTTP") {
-                return nil, .Status_Line_Not_Found
+                return res, .Status_Line_Not_Found
             }
 
             arr := strings.split(line, " ")
             defer delete(arr)
             if len(arr) < 3 {
-                return nil, .Invalid_Status_Line
+                return res, .Invalid_Status_Line
             }
             res.version, res.reason = arr[0], arr[2]
 
             res.status = u16(strconv.parse_uint(arr[1]) or_else 0)
             if res.status == 0 {
-                return nil, .Invalid_Status
+                return res, .Invalid_Status
             }
         } else {
             if found_delimiter {
@@ -356,7 +356,7 @@ _parse_response :: proc(buf: []u8) -> (res: ^Response, err: Parse_Error) {
             arr := strings.split_n(line, ":", 2)
             defer delete(arr)
             if len(arr) < 2 || len(arr[0]) == 0 {
-                return nil, .Invalid_Header
+                return res, .Invalid_Header
             }
             res.headers[arr[0]] = strings.trim(arr[1], " ")
         }
@@ -477,13 +477,13 @@ test_parse_url :: proc(t: ^testing.T) {
         {"ht tps://foo.com/bar?foo=bar#foo", {}, .Scheme_Not_Found},
         {"ht_tps://foo.com/bar?foo=bar#foo", {}, .Scheme_Not_Found},
         {"ws://foo.com/bar?foo=bar#foo", {}, .Invalid_Scheme},
-        {"https://.foo.com/bar?foo=bar#foo", {}, .Host_Not_Found},
-        {"https://foo.com./bar?foo=bar#foo", {}, .Host_Not_Found},
-        {"https://-foo.com/bar?foo=bar#foo", {}, .Host_Not_Found},
-        {"https://foo.com-/bar?foo=bar#foo", {}, .Host_Not_Found},
-        {"https://foo/bar?foo=bar#foo", {}, .Host_Not_Found},
-        {"https://f oo.com/bar?foo=bar#foo", {}, .Host_Not_Found},
-        {"https://f_oo.com/bar?foo=bar#foo", {}, .Host_Not_Found},
+        {"https://.foo.com/bar?foo=bar#foo", {"https", "", "", "", "", "", 443}, .Host_Not_Found},
+        {"https://foo.com./bar?foo=bar#foo", {"https", "", "", "", "", "", 443}, .Host_Not_Found},
+        {"https://-foo.com/bar?foo=bar#foo", {"https", "", "", "", "", "", 443}, .Host_Not_Found},
+        {"https://foo.com-/bar?foo=bar#foo", {"https", "", "", "", "", "", 443}, .Host_Not_Found},
+        {"https://foo/bar?foo=bar#foo", {"https", "", "", "", "", "", 443}, .Host_Not_Found},
+        {"https://f oo.com/bar?foo=bar#foo", {"https", "", "", "", "", "", 443}, .Host_Not_Found},
+        {"https://f_oo.com/bar?foo=bar#foo", {"https", "", "", "", "", "", 443}, .Host_Not_Found},
     }
     for test, _ in tests {
         res, err := parse_url(test.str)
@@ -543,27 +543,24 @@ test_parse_response :: proc(t: ^testing.T) {
         {"HTTP/1.1 200 OK\r\nHost: foo.com\r\nConnection: close\r\n\r\n", &{headers_a, "HTTP/1.1", "OK", {}, 200}, .None},
         {"HTTP/1.1 200 OK\r\nHost: foo.com\r\nConnection: \r\n\r\n", &{headers_b, "HTTP/1.1", "OK", {}, 200}, .None},
         {"HTTP/1.1 200 OK\r\n\r\n", &{nil, "HTTP/1.1", "OK", {}, 200}, .None},
-        {"Host: foo.com\r\nConnection: close\r\n\r\n", nil, .Status_Line_Not_Found},
-        {"HTTP/1.1 200\r\nHost: foo.com\r\nConnection: close\r\n\r\n", nil, .Invalid_Status_Line},
-        {"HTTP/1.1 200 OK\r\nHost: foo.com\r\n: close\r\n\r\n", nil, .Invalid_Header},
-        {"HTTP/1.1 200 OK\r\nHost: foo.com\r\n:\r\n\r\n", nil, .Invalid_Header},
+        {"Host: foo.com\r\nConnection: close\r\n\r\n", &{nil, "", "", {}, 0}, .Status_Line_Not_Found},
+        {"HTTP/1.1 200\r\nHost: foo.com\r\nConnection: close\r\n\r\n", &{nil, "", "", {}, 0}, .Invalid_Status_Line},
+        {"HTTP/1.1 200 OK\r\n: foo.com\r\n\r\n", &{nil, "HTTP/1.1", "OK", {}, 200}, .Invalid_Header},
+        {"HTTP/1.1 200 OK\r\n:\r\n\r\n", &{nil, "HTTP/1.1", "OK", {}, 200}, .Invalid_Header},
     }
     for test, _ in tests {
         res, err := _parse_response(transmute([]u8)test.buf)
-        defer delete(res.headers)
         defer free(res)
+        defer delete(res.headers)
 
-        if res != nil {
-            for key, val in res.headers {
-                testing.expect_value(t, val, test.res.headers[key])
-            }
-            testing.expect_value(t, res.version, test.res.version)
-            testing.expect_value(t, res.reason, test.res.reason)
-            testing.expect_value(t, string(res.body), string(test.res.body))
-            testing.expect_value(t, res.status, test.res.status)
-            continue
+        for key, val in res.headers {
+            testing.expect_value(t, val, test.res.headers[key])
         }
-        testing.expect_value(t, res, test.res)
+        testing.expect_value(t, res.version, test.res.version)
+        testing.expect_value(t, res.reason, test.res.reason)
+        testing.expect_value(t, string(res.body), string(test.res.body))
+        testing.expect_value(t, res.status, test.res.status)
         testing.expect_value(t, err, test.err)
     }
 }
+
