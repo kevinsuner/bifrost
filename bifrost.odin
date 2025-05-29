@@ -3,6 +3,22 @@ package bifrost
 import "core:strings"
 import "core:fmt"
 import "core:strconv"
+import "core:testing"
+import "core:log"
+
+foreign import libtls "system:tls"
+
+TlsConfig :: struct {}
+
+foreign libtls {
+    tls_config_new :: proc() -> ^TlsConfig ---
+}
+
+@(test)
+test_libtls :: proc(t: ^testing.T) {
+    cfg := tls_config_new()
+    log.infof("TlsConfig: %v\n", cfg)
+}
 
 Parse_Error :: enum {
     None,
