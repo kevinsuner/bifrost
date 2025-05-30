@@ -3,23 +3,6 @@ package bifrost
 import "core:strings"
 import "core:fmt"
 import "core:strconv"
-import "core:testing"
-import "core:log"
-
-when ODIN_OS == .Linux   do foreign import libmbedtls "system:mbedtls"
-when ODIN_OS == .Windows do foreign import libmbedtls "system:mbedtls.lib"  
-
-mbedtls_net_context :: struct {}
-
-foreign libmbedtls {
-    mbedtls_net_init :: proc(^mbedtls_net_context) ---
-}
-
-@(test)
-test_libtls :: proc(t: ^testing.T) {
-    ctx := &mbedtls_net_context{}
-    mbedtls_net_init(ctx)
-}
 
 Parse_Error :: enum {
     None,
