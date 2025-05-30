@@ -6,18 +6,19 @@ import "core:strconv"
 import "core:testing"
 import "core:log"
 
-foreign import libtls "system:tls"
+when ODIN_OS == .Linux   do foreign import libmbedtls "system:mbedtls"
+when ODIN_OS == .Windows do foreign import libmbedtls "system:mbedtls.lib"  
 
-TlsConfig :: struct {}
+mbedtls_net_context :: struct {}
 
-foreign libtls {
-    tls_config_new :: proc() -> ^TlsConfig ---
+foreign libmbedtls {
+    mbedtls_net_init :: proc(^mbedtls_net_context) ---
 }
 
 @(test)
 test_libtls :: proc(t: ^testing.T) {
-    cfg := tls_config_new()
-    log.infof("TlsConfig: %v\n", cfg)
+    ctx := &mbedtls_net_context{}
+    mbedtls_net_init(ctx)
 }
 
 Parse_Error :: enum {
