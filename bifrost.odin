@@ -149,7 +149,7 @@ _percent_encode_str :: proc(str: string) -> (res: string) {
     sb := strings.builder_make()
     defer strings.builder_destroy(&sb)
 
-    for c, i in str {
+    for c, _ in str {
         switch {
         case c == ' ':
             strings.write_string(&sb, "%20")
