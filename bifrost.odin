@@ -4,6 +4,16 @@ import "core:net"
 import "core:strings"
 import "core:fmt"
 import "core:strconv"
+import "openssl"
+
+DEFAULT_RESPONSE_LENGTH :: 1024
+
+Request_Error :: union #shared_nil {
+    URL_Error,
+    Response_Error,
+    SSL_Error,
+    net.Network_Error,
+}
 
 URL_Error :: enum {
     None,
@@ -27,6 +37,12 @@ Response_Error :: enum {
     Invalid_Status,
     // Header is wrongly formatted
     Invalid_Header,
+}
+
+SSL_Error :: enum {
+    None,
+    // Found an OpenSSL error
+    Unknown,
 }
 
 Request_Method :: enum {
@@ -257,7 +273,13 @@ parse_url :: proc(url: ^Url, str: string, allocator := context.allocator) -> (er
 
 // Builds and HTTP request string
 @(private)
-_build_request :: proc(method: Request_Method, url: ^Url, headers: map[string]string, body: []u8, allocator := context.allocator) -> (res: []u8) {
+_build_request :: proc(
+    method: Request_Method,
+    url: ^Url,
+    headers: map[string]string,
+    body: []u8,
+    allocator := context.allocator,
+) -> (res: []u8) {
     sb := strings.builder_make(0, (len(url.raw) + cap(headers) + len(body)) * 2, allocator)
     defer strings.builder_destroy(&sb)
 
@@ -274,7 +296,7 @@ _build_request :: proc(method: Request_Method, url: ^Url, headers: map[string]st
 
 // Parses `data` into an `^Response` struct
 @(private)
-_parse_response :: proc(res: ^Response, data: string) -> (err: Response_Error) {
+_parse_response :: proc(res: ^Response, data: string, allocator := context.allocator) -> (err: Response_Error) {
     str := string(data)
     found_delimiter: bool
 
@@ -289,7 +311,7 @@ _parse_response :: proc(res: ^Response, data: string) -> (err: Response_Error) {
                 return .Status_Line_Not_Found
             }
 
-            arr := strings.split(line, " ")
+            arr := strings.split(line, " ", allocator)
             defer delete(arr)
             if len(arr) < 3 {
                 return .Invalid_Status_Line
@@ -306,13 +328,101 @@ _parse_response :: proc(res: ^Response, data: string) -> (err: Response_Error) {
                 break
             }
 
-            arr := strings.split_n(line, ":", 2)
+            arr := strings.split_n(line, ":", 2, allocator)
             defer delete(arr)
             if len(arr) < 2 || len(arr[0]) == 0 {
                 return .Invalid_Header
             }
             res.headers[arr[0]] = strings.trim(arr[1], " ")
         }
+    }
+    return
+}
+
+/*
+Makes an HTTP request using OpenSSL and parses the response into a `^Response` struct
+
+Inputs:
+- res: A pointer to an initialized `^Response` struct
+- method: An enumerated value from `Request_Method`
+- url: A pointer to an initialized `^Url` struct
+- headers: A string map representing the request headers
+- body: A slice of bytes representing the request body
+- length: The expected length of the response (default is 1kb)
+- allocator: A custom memory allocator (default is context.allocator)
+
+Returns:
+- err: An enumerated value from `SSL_Error` or `Response_Error`
+
+Example:
+
+    import "core:fmt"
+    import "libs/bifrost"
+
+    main :: proc() {
+        url := new(bifrost.Url)
+        defer free(url)
+
+        parse_err := bifrost.parse_url(url, "https://foo.com/")
+        if parse_err != .None { fmt.printf("error: %v\n", parse_err); return }
+
+        res := new(bifrost.Response)
+        defer free(res)
+
+        request_err := bifrost.make_request(res, .Get, url, nil, nil)
+        if request_err != .None { fmt.printf("error: %v\n", request_err); return }
+        fmt.printf("%v\n", res)
+    }
+
+Output:
+
+    &Response{map[Host="foo.com", Connection="close"], "HTTP/1.1", "OK", {}, 200}
+
+*/
+make_request :: proc(
+    res: ^Response,
+    method: Request_Method,
+    url: ^Url,
+    headers: map[string]string,
+    body: []u8,
+    length := DEFAULT_RESPONSE_LENGTH,
+    allocator := context.allocator,
+) -> (err: Request_Error) {
+    ctx := openssl.SSL_CTX_new(openssl.TLS_client_method())
+    defer openssl.SSL_CTX_free(ctx)
+    if ctx == nil {
+        return .Unknown
+    }
+
+    ssl := openssl.SSL_new(ctx)
+    defer openssl.SSL_free(ssl)
+    if ssl == nil {
+        return .Unknown
+    }
+
+    ep4 := net.resolve_ip4(fmt.tprintf("%s:%d", url.host, url.port)) or_return
+    sockfd := net.dial_tcp_from_endpoint(ep4) or_return
+    defer net.close(sockfd)
+
+    if openssl.SSL_set_fd(ssl, i32(sockfd)) <= 0 {
+        return .Unknown
+    }
+
+    openssl.SSL_set_tlsext_host_name(ssl, strings.clone_to_cstring(url.host))
+    if openssl.SSL_connect(ssl) <= 0 {
+        return .Unknown
+    }
+
+    request := _build_request(method, url, headers, body, allocator)
+    if openssl.SSL_write(ssl, raw_data(request), i32(len(request))) <= 0 {
+        return .Unknown
+    }
+
+    data := make([^]u8, length)
+    defer free(data)
+    for openssl.SSL_read(ssl, data, i32(length - 1)) > 0 {
+        err = _parse_response(res, strings.string_from_ptr(data, length), allocator)
+        if err != nil { return }
     }
     return
 }
