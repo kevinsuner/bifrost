@@ -25,8 +25,6 @@ foreign lib {
     SSL_write           :: proc(ssl: ^SSL, buf: [^]u8, num: c.int) -> c.int                     ---
     SSL_read            :: proc(ssl: ^SSL, buf: [^]u8, num: c.int) -> c.int                     ---
     TLS_client_method   :: proc() -> ^SSL_METHOD                                                ---
-    ERR_get_error       :: proc() -> c.long                                                     ---
-    ERR_error_string_n  :: proc(e: c.long, buf: [^]u8, len: c.int)                              ---
 }
 
 SSL_set_tlsext_host_name :: proc(ssl: ^SSL, name: cstring) -> c.int {
