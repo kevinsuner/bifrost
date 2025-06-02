@@ -1,10 +1,11 @@
 package bifrost
 
+import "core:net"
 import "core:strings"
 import "core:fmt"
 import "core:strconv"
 
-Parse_Error :: enum {
+URL_Error :: enum {
     None,
     // Found an ASCII control character
     Found_Control_Character,
@@ -14,6 +15,10 @@ Parse_Error :: enum {
     Invalid_Scheme,
     // Unable to extract host part of http url
     Host_Not_Found,
+}
+
+Response_Error :: enum {
+    None,
     // Unable to find response's status line
     Status_Line_Not_Found,
     // Status line is wrongly formatted
@@ -24,17 +29,48 @@ Parse_Error :: enum {
     Invalid_Header,
 }
 
-/*
-Reports whether `str` contains any ASCII control character
+Request_Method :: enum {
+    Get,
+    Head,
+    Options,
+    Put,
+    Delete,
+    Post,
+    Patch,
+}
 
-Inputs:
-- str: The input string
-
-Returns:
-- err: An enumerated value from `Parse_Error`
-*/
 @(private)
-_has_control_character :: proc(str: string) -> (err: Parse_Error) {
+_request_method_to_str := [Request_Method]string{
+    .Post       = "POST",
+    .Get        = "GET",
+    .Put        = "PUT",
+    .Patch      = "PATCH",
+    .Delete     = "DELETE",
+    .Head       = "HEAD",
+    .Options    = "OPTIONS",
+}
+
+Url :: struct {
+    scheme:     string,
+    host:       string,
+    path:       string,
+    query:      string,
+    fragment:   string,
+    raw:        string,
+    port:       u16,
+}
+
+Response :: struct {
+    headers:    map[string]string,
+    version:    string,
+    reason:     string,
+    body:       []u8,
+    status:     u16,
+}
+
+// Reports whether `str` contains any ASCII control character
+@(private)
+_has_control_character :: proc(str: string) -> (err: URL_Error) {
     for _, i in str {
         if str[i] < ' ' || str[i] == 0x7f {
             return .Found_Control_Character
@@ -43,19 +79,9 @@ _has_control_character :: proc(str: string) -> (err: Parse_Error) {
     return .None
 }
 
-/*
-Extracts the http scheme part from `str`
-
-Inputs:
-- str: The input string
-
-Returns:
-- res: The http scheme
-- rest: The rest of the string
-- err: An enumerated value from `Parse_Error`
-*/
+// Extracts the HTTP scheme part from `str`
 @(private)
-_extract_scheme :: proc(str: string) -> (res, rest: string, err: Parse_Error) {
+_extract_scheme :: proc(str: string) -> (res, rest: string, err: URL_Error) {
     for c, i in str {
         switch {
         case 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z':
@@ -82,19 +108,9 @@ _extract_scheme :: proc(str: string) -> (res, rest: string, err: Parse_Error) {
     return "", str, .Scheme_Not_Found
 }
 
-/*
-Extracts the http host part from `str`
-
-Inputs:
-- str: The input string
-
-Returns:
-- res: The http host
-- rest: The rest of the string
-- err: An enumerated value from `Parse_Error`
-*/
+// Extracts the HTTP host part from `str`
 @(private)
-_extract_host :: proc(str: string) -> (res, rest: string, err: Parse_Error) {
+_extract_host :: proc(str: string) -> (res, rest: string, err: URL_Error) {
     s := strings.trim_prefix(str, "//")
     hyphen_pos, period_pos: int
 
@@ -135,18 +151,10 @@ _extract_host :: proc(str: string) -> (res, rest: string, err: Parse_Error) {
     return "", str, .Host_Not_Found
 }
 
-/*
-Escapes specific characters from `str` using percent-encoding
-
-Inputs:
-- str: The input string
-
-Returns:
-- res: The percent-encoded string
-*/
+// Escapes specific characters from `str` using percent-encoding
 @(private)
-_percent_encode_str :: proc(str: string) -> (res: string) {
-    sb := strings.builder_make()
+_percent_encode_str :: proc(str: string, allocator := context.allocator) -> (res: string) {
+    sb := strings.builder_make(allocator)
     defer strings.builder_destroy(&sb)
 
     for c, _ in str {
@@ -197,25 +205,16 @@ _percent_encode_str :: proc(str: string) -> (res: string) {
     return strings.to_string(sb)
 }
 
-Url :: struct {
-    scheme:     string,
-    host:       string,
-    path:       string,
-    query:      string,
-    fragment:   string,
-    raw:        string,
-    port:       u16,
-}
-
 /*
-Parses `str` into an `Url` struct
+Parses `str` into an `^Url` struct
 
 Inputs:
+- url: A pointer to an initialized `^Url` struct
 - str: The input string
+- allocator: A custom memory allocator (default is context.allocator)
 
 Returns:
-- res: An initialized `Url` struct
-- err: An enumerated value from `Parse_Error`
+- err: An enumerated value from `URL_Error`
 
 Example:
 
@@ -223,74 +222,47 @@ Example:
     import "libs/bifrost"
 
     main :: proc() {
-        fmt.printf("%v\n", bifrost.parse_url("https://foo.com/"))
+        url := new(bifrost.Url)
+        defer free(url)
+
+        err := bifrost.parse_url(url, "https://foo.com/")
+        if err != .None { fmt.printf("error: %v\n", err); return }
+        fmt.printf("%v\n", url)
     }
 
 Output:
 
-    Url{"https", "foo.com", "/", "", "", "https://foo.com/", 443}
+    &Url{"https", "foo.com", "/", "", "", "https://foo.com/", 443}
 
 */
-parse_url :: proc(str: string) -> (res: Url, err: Parse_Error) {
+parse_url :: proc(url: ^Url, str: string, allocator := context.allocator) -> (err: URL_Error) {
     _has_control_character(str) or_return
 
     rest: string
-    res.scheme, rest = _extract_scheme(str) or_return
-    if res.scheme != "http" && res.scheme != "https" {
-        return {}, .Invalid_Scheme
+    url.scheme, rest = _extract_scheme(str) or_return
+    if url.scheme != "http" && url.scheme != "https" {
+        return .Invalid_Scheme
     }
-    res.port = 80 if res.scheme == "http" else 443
+    url.port = 80 if url.scheme == "http" else 443
 
-    res.host, rest = _extract_host(rest) or_return
-    res.raw = fmt.tprintf("%s://%s%s", res.scheme, res.host, rest)
-    rest = _percent_encode_str(rest)
+    url.host, rest = _extract_host(rest) or_return
+    url.raw = str
+    rest = _percent_encode_str(rest, allocator)
 
-    res.fragment, _ = strings.substring(rest, strings.index(rest, "#"), len(rest))
-    res.query, _ = strings.substring(rest, strings.index(rest, "?"), len(rest) - len(res.fragment))
-    res.path, _ = strings.substring(rest, 0, len(rest) - len(res.query) - len(res.fragment))
+    url.fragment, _ = strings.substring(rest, strings.index(rest, "#"), len(rest))
+    url.query, _ = strings.substring(rest, strings.index(rest, "?"), len(rest) - len(url.fragment))
+    url.path, _ = strings.substring(rest, 0, len(rest) - len(url.query) - len(url.fragment))
     return
 }
 
-Method :: enum {
-    Get,
-    Head,
-    Options,
-    Put,
-    Delete,
-    Post,
-    Patch,
-}
-
+// Builds and HTTP request string
 @(private)
-_method_to_str := [Method]string{
-    .Post       = "POST",
-    .Get        = "GET",
-    .Put        = "PUT",
-    .Patch      = "PATCH",
-    .Delete     = "DELETE",
-    .Head       = "HEAD",
-    .Options    = "OPTIONS",
-}
-
-/*
-Builds and HTTP request string
-
-Inputs:
-- method: An enumerated value from `Method`
-- url: An initialized `Url` struct
-- headers: A string map representing the request headers
-- body: A slice of bytes representing the request body
-
-Returns:
-- res: A slice of bytes representing the request
-*/
-@(private)
-_build_request :: proc(method: Method, url: Url, headers: map[string]string, body: []u8) -> (res: []u8) {
-    sb := strings.builder_make(0, (len(url.raw) + cap(headers) + len(body)) * 2)
+_build_request :: proc(method: Request_Method, url: ^Url, headers: map[string]string, body: []u8, allocator := context.allocator) -> (res: []u8) {
+    sb := strings.builder_make(0, (len(url.raw) + cap(headers) + len(body)) * 2, allocator)
     defer strings.builder_destroy(&sb)
 
-    fmt.sbprintf(&sb, "%s %s%s%s HTTP/1.1\r\n", _method_to_str[method], url.path, url.query, url.fragment)
-    fmt.sbprintf(&sb, "Host: %s\r\n", url.host)
+    fmt.sbprintf(&sb, "%s %s%s%s HTTP/1.1\r\n", _request_method_to_str[method], url.path, url.query, url.fragment)
+    fmt.sbprintf(&sb, "Host: %s\r\nConnection: close\r\n", url.host)
     for key, val in headers {
         fmt.sbprintf(&sb, "%s: %s\r\n", key, val)
     }
@@ -300,28 +272,10 @@ _build_request :: proc(method: Method, url: Url, headers: map[string]string, bod
     return sb.buf[:]
 }
 
-Response :: struct {
-    headers:    map[string]string,
-    version:    string,
-    reason:     string,
-    body:       []u8,
-    status:     u16,
-}
-
-/*
-Parses `buf` into an `^Response` struct
-
-Inputs:
-- buf: The input bytes
-
-Returns:
-- res: A pointer to an initialized `^Response` struct
-- err: An enumerated value from `Parse_Error`
-*/
+// Parses `data` into an `^Response` struct
 @(private)
-_parse_response :: proc(buf: []u8) -> (res: ^Response, err: Parse_Error) {
-    res = new(Response)
-    str := string(buf)
+_parse_response :: proc(res: ^Response, data: string) -> (err: Response_Error) {
+    str := string(data)
     found_delimiter: bool
 
     for line in strings.split_lines_iterator(&str) {
@@ -332,30 +286,30 @@ _parse_response :: proc(buf: []u8) -> (res: ^Response, err: Parse_Error) {
 
         if res.status == 0 {
             if !strings.contains(line, "HTTP") {
-                return res, .Status_Line_Not_Found
+                return .Status_Line_Not_Found
             }
 
             arr := strings.split(line, " ")
             defer delete(arr)
             if len(arr) < 3 {
-                return res, .Invalid_Status_Line
+                return .Invalid_Status_Line
             }
             res.version, res.reason = arr[0], arr[2]
 
             res.status = u16(strconv.parse_uint(arr[1]) or_else 0)
             if res.status == 0 {
-                return res, .Invalid_Status
+                return .Invalid_Status
             }
         } else {
             if found_delimiter {
-                res.body = buf[strings.last_index(string(buf), "\n")+1:]
+                res.body = transmute([]u8)data[strings.last_index(data, "\n")+1:]
                 break
             }
 
             arr := strings.split_n(line, ":", 2)
             defer delete(arr)
             if len(arr) < 2 || len(arr[0]) == 0 {
-                return res, .Invalid_Header
+                return .Invalid_Header
             }
             res.headers[arr[0]] = strings.trim(arr[1], " ")
         }
