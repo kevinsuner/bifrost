@@ -223,7 +223,7 @@ test_percent_encode_str :: proc(t: ^testing.T) {
         },
     }
     for test, _ in tests {
-        testing.expect_value(t, _percent_encode_str(test.str, context.allocator), test.res)
+        testing.expect_value(t, _percent_encode_str(test.str), test.res)
     }
 }
 
