@@ -225,31 +225,35 @@ _percent_encode_str :: proc(str: string) -> (res: string) {
 Parses `str` into an `^Url` struct
 
 Inputs:
-- url: A pointer to an initialized `^Url` struct
 - str: The input string
 
 Returns:
+- res: A pointer to a `^Url` struct
 - err: An enumerated value from `URL_Error`
 */
-parse_url :: proc(url: ^Url, str: string) -> (err: URL_Error) {
+parse_url :: proc(str: string) -> (res: ^Url, err: URL_Error) {
     _has_control_character(str) or_return
 
+    res = new(Url)
     rest: string
-    url.scheme, rest = _extract_scheme(str) or_return
-    if url.scheme != "http" && url.scheme != "https" {
-        return .Invalid_Scheme
-    }
-    url.port = 80 if url.scheme == "http" else 443
 
-    url.host, rest = _extract_host(rest) or_return
-    url.raw = str
+    res.scheme, rest = _extract_scheme(str) or_return
+    if res.scheme != "http" && res.scheme != "https" {
+        return res, .Invalid_Scheme
+    }
+    res.port = 80 if res.scheme == "http" else 443
+
+    res.host, rest = _extract_host(rest) or_return
     rest = _percent_encode_str(rest)
 
-    url.fragment, _ = strings.substring(rest, strings.index(rest, "#"), len(rest))
-    url.query, _ = strings.substring(rest, strings.index(rest, "?"), len(rest) - len(url.fragment))
-    url.path, _ = strings.substring(rest, 0, len(rest) - len(url.query) - len(url.fragment))
+    res.fragment, _ = strings.substring(rest, strings.index(rest, "#"), len(rest))
+    res.query, _ = strings.substring(rest, strings.index(rest, "?"), len(rest) - len(res.fragment))
+    res.path, _ = strings.substring(rest, 0, len(rest) - len(res.query) - len(res.fragment))
+
+    res.raw = str
     return
 }
+
 
 // Builds and HTTP request string
 @(private)
@@ -270,7 +274,8 @@ _build_request :: proc(method: Request_Method, url: ^Url, headers: map[string]st
 
 // Parses `data` into an `^Response` struct
 @(private)
-_parse_response :: proc(res: ^Response, data: string) -> (err: Response_Error) {
+_parse_response :: proc(data: string) -> (res: ^Response, err: Response_Error) {
+    res = new(Response)
     str := string(data)
     found_delimiter: bool
 
@@ -282,19 +287,19 @@ _parse_response :: proc(res: ^Response, data: string) -> (err: Response_Error) {
 
         if res.status == 0 {
             if !strings.contains(line, "HTTP") {
-                return .Status_Line_Not_Found
+                return res, .Status_Line_Not_Found
             }
 
             arr := strings.split(line, " ")
             defer delete(arr)
             if len(arr) < 3 {
-                return .Invalid_Status_Line
+                return res, .Invalid_Status_Line
             }
             res.version, res.reason = arr[0], arr[2]
 
             res.status = u16(strconv.parse_uint(arr[1]) or_else 0)
             if res.status == 0 {
-                return .Invalid_Status
+                return res, .Invalid_Status
             }
         } else {
             if found_delimiter {
@@ -305,7 +310,7 @@ _parse_response :: proc(res: ^Response, data: string) -> (err: Response_Error) {
             arr := strings.split_n(line, ":", 2)
             defer delete(arr)
             if len(arr) < 2 || len(arr[0]) == 0 {
-                return .Invalid_Header
+                return res, .Invalid_Header
             }
             res.headers[arr[0]] = strings.trim(arr[1], " ")
         }
@@ -317,7 +322,6 @@ _parse_response :: proc(res: ^Response, data: string) -> (err: Response_Error) {
 Makes an HTTP request using OpenSSL and parses the response into a `^Response` struct
 
 Inputs:
-- res: A pointer to an initialized `^Response` struct
 - method: An enumerated value from `Request_Method`
 - url: A pointer to an initialized `^Url` struct
 - headers: A string map representing the request headers
@@ -325,26 +329,26 @@ Inputs:
 - length: The expected length of the response (default is 1kb)
 
 Returns:
+- res: A pointer to a `^Response` struct
 - err: An enumerated value from `SSL_Error` or `Response_Error`
 */
 make_request :: proc(
-    res: ^Response,
     method: Request_Method,
     url: ^Url,
     headers: map[string]string,
     body: []u8,
     length := DEFAULT_RESPONSE_LENGTH,
-) -> (err: Request_Error) {
+) -> (res: ^Response, err: Request_Error) {
     ctx := openssl.SSL_CTX_new(openssl.TLS_client_method())
     defer openssl.SSL_CTX_free(ctx)
     if ctx == nil {
-        return .Unknown
+        return res, .Unknown
     }
 
     ssl := openssl.SSL_new(ctx)
     defer openssl.SSL_free(ssl)
     if ssl == nil {
-        return .Unknown
+        return res, .Unknown
     }
 
     ep4 := net.resolve_ip4(fmt.tprintf("%s:%d", url.host, url.port)) or_return
@@ -352,23 +356,23 @@ make_request :: proc(
     defer net.close(sockfd)
 
     if openssl.SSL_set_fd(ssl, i32(sockfd)) <= 0 {
-        return .Unknown
+        return res, .Unknown
     }
 
     openssl.SSL_set_tlsext_host_name(ssl, strings.clone_to_cstring(url.host))
     if openssl.SSL_connect(ssl) <= 0 {
-        return .Unknown
+        return res, .Unknown
     }
 
     request := _build_request(method, url, headers, body)
     if openssl.SSL_write(ssl, raw_data(request), i32(len(request))) <= 0 {
-        return .Unknown
+        return res, .Unknown
     }
 
     data := make([^]u8, length)
     defer free(data)
     for openssl.SSL_read(ssl, data, i32(length - 1)) > 0 {
-        err = _parse_response(res, strings.string_from_ptr(data, length))
+        res, err = _parse_response(strings.string_from_ptr(data, length))
         if err != nil { return }
     }
     return

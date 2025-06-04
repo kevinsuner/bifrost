@@ -427,8 +427,8 @@ test_parse_url :: proc(t: ^testing.T) {
         },
     }
     for test, _ in tests {
-        url := new(Url)
-        err := parse_url(url, test.str)
+        url, err := parse_url(test.str)
+        defer free(url)
         testing.expect_value(t, url.scheme, test.url.scheme)
         testing.expect_value(t, url.host, test.url.host)
         testing.expect_value(t, url.path, test.url.path)
@@ -436,7 +436,6 @@ test_parse_url :: proc(t: ^testing.T) {
         testing.expect_value(t, url.fragment, test.url.fragment)
         testing.expect_value(t, url.raw, test.url.raw)
         testing.expect_value(t, url.port, test.url.port)
-        free(url)
     }
 }
 
@@ -544,8 +543,8 @@ test_build_request :: proc(t: ^testing.T) {
     }
     for test, _ in tests {
         res := _build_request(test.method, test.url, test.headers, transmute([]u8)test.body)
+        defer delete(test.headers)
         testing.expect_value(t, string(res), test.res)
-        delete(test.headers)
     }
 }
 
@@ -595,8 +594,10 @@ test_parse_response :: proc(t: ^testing.T) {
         },
     }
     for test, _ in tests {
-        res := new(Response)
-        err := _parse_response(res, test.buf)
+        res, err := _parse_response(test.buf)
+        defer free(res)
+        defer delete(res.headers)
+        defer delete(test.res.headers)
         for key, val in res.headers {
             testing.expect_value(t, val, test.res.headers[key])
         }
@@ -605,9 +606,6 @@ test_parse_response :: proc(t: ^testing.T) {
         testing.expect_value(t, string(res.body), string(test.res.body))
         testing.expect_value(t, res.status, test.res.status)
         testing.expect_value(t, err, test.err)
-        delete(test.res.headers)
-        delete(res.headers)
-        free(res)
     }
 }
 
