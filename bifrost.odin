@@ -169,8 +169,8 @@ _extract_host :: proc(str: string) -> (res, rest: string, err: URL_Error) {
 
 // Escapes specific characters from `str` using percent-encoding
 @(private)
-_percent_encode_str :: proc(str: string, allocator := context.allocator) -> (res: string) {
-    sb := strings.builder_make(allocator)
+_percent_encode_str :: proc(str: string) -> (res: string) {
+    sb := strings.builder_make()
     defer strings.builder_destroy(&sb)
 
     for c, _ in str {
@@ -227,31 +227,11 @@ Parses `str` into an `^Url` struct
 Inputs:
 - url: A pointer to an initialized `^Url` struct
 - str: The input string
-- allocator: A custom memory allocator (default is context.allocator)
 
 Returns:
 - err: An enumerated value from `URL_Error`
-
-Example:
-
-    import "core:fmt"
-    import "libs/bifrost"
-
-    main :: proc() {
-        url := new(bifrost.Url)
-        defer free(url)
-
-        err := bifrost.parse_url(url, "https://foo.com/")
-        if err != .None { fmt.printf("error: %v\n", err); return }
-        fmt.printf("%v\n", url)
-    }
-
-Output:
-
-    &Url{"https", "foo.com", "/", "", "", "https://foo.com/", 443}
-
 */
-parse_url :: proc(url: ^Url, str: string, allocator := context.allocator) -> (err: URL_Error) {
+parse_url :: proc(url: ^Url, str: string) -> (err: URL_Error) {
     _has_control_character(str) or_return
 
     rest: string
@@ -263,7 +243,7 @@ parse_url :: proc(url: ^Url, str: string, allocator := context.allocator) -> (er
 
     url.host, rest = _extract_host(rest) or_return
     url.raw = str
-    rest = _percent_encode_str(rest, allocator)
+    rest = _percent_encode_str(rest)
 
     url.fragment, _ = strings.substring(rest, strings.index(rest, "#"), len(rest))
     url.query, _ = strings.substring(rest, strings.index(rest, "?"), len(rest) - len(url.fragment))
@@ -273,14 +253,8 @@ parse_url :: proc(url: ^Url, str: string, allocator := context.allocator) -> (er
 
 // Builds and HTTP request string
 @(private)
-_build_request :: proc(
-    method: Request_Method,
-    url: ^Url,
-    headers: map[string]string,
-    body: []u8,
-    allocator := context.allocator,
-) -> (res: []u8) {
-    sb := strings.builder_make(0, (len(url.raw) + cap(headers) + len(body)) * 2, allocator)
+_build_request :: proc(method: Request_Method, url: ^Url, headers: map[string]string, body: []u8) -> (res: []u8) {
+    sb := strings.builder_make(0, (len(url.raw) + cap(headers) + len(body)) * 2)
     defer strings.builder_destroy(&sb)
 
     fmt.sbprintf(&sb, "%s %s%s%s HTTP/1.1\r\n", _request_method_to_str[method], url.path, url.query, url.fragment)
@@ -296,7 +270,7 @@ _build_request :: proc(
 
 // Parses `data` into an `^Response` struct
 @(private)
-_parse_response :: proc(res: ^Response, data: string, allocator := context.allocator) -> (err: Response_Error) {
+_parse_response :: proc(res: ^Response, data: string) -> (err: Response_Error) {
     str := string(data)
     found_delimiter: bool
 
@@ -311,7 +285,7 @@ _parse_response :: proc(res: ^Response, data: string, allocator := context.alloc
                 return .Status_Line_Not_Found
             }
 
-            arr := strings.split(line, " ", allocator)
+            arr := strings.split(line, " ")
             defer delete(arr)
             if len(arr) < 3 {
                 return .Invalid_Status_Line
@@ -328,7 +302,7 @@ _parse_response :: proc(res: ^Response, data: string, allocator := context.alloc
                 break
             }
 
-            arr := strings.split_n(line, ":", 2, allocator)
+            arr := strings.split_n(line, ":", 2)
             defer delete(arr)
             if len(arr) < 2 || len(arr[0]) == 0 {
                 return .Invalid_Header
@@ -349,35 +323,9 @@ Inputs:
 - headers: A string map representing the request headers
 - body: A slice of bytes representing the request body
 - length: The expected length of the response (default is 1kb)
-- allocator: A custom memory allocator (default is context.allocator)
 
 Returns:
 - err: An enumerated value from `SSL_Error` or `Response_Error`
-
-Example:
-
-    import "core:fmt"
-    import "libs/bifrost"
-
-    main :: proc() {
-        url := new(bifrost.Url)
-        defer free(url)
-
-        parse_err := bifrost.parse_url(url, "https://foo.com/")
-        if parse_err != .None { fmt.printf("error: %v\n", parse_err); return }
-
-        res := new(bifrost.Response)
-        defer free(res)
-
-        request_err := bifrost.make_request(res, .Get, url, nil, nil)
-        if request_err != .None { fmt.printf("error: %v\n", request_err); return }
-        fmt.printf("%v\n", res)
-    }
-
-Output:
-
-    &Response{map[Host="foo.com", Connection="close"], "HTTP/1.1", "OK", {}, 200}
-
 */
 make_request :: proc(
     res: ^Response,
@@ -386,7 +334,6 @@ make_request :: proc(
     headers: map[string]string,
     body: []u8,
     length := DEFAULT_RESPONSE_LENGTH,
-    allocator := context.allocator,
 ) -> (err: Request_Error) {
     ctx := openssl.SSL_CTX_new(openssl.TLS_client_method())
     defer openssl.SSL_CTX_free(ctx)
@@ -413,7 +360,7 @@ make_request :: proc(
         return .Unknown
     }
 
-    request := _build_request(method, url, headers, body, allocator)
+    request := _build_request(method, url, headers, body)
     if openssl.SSL_write(ssl, raw_data(request), i32(len(request))) <= 0 {
         return .Unknown
     }
@@ -421,7 +368,7 @@ make_request :: proc(
     data := make([^]u8, length)
     defer free(data)
     for openssl.SSL_read(ssl, data, i32(length - 1)) > 0 {
-        err = _parse_response(res, strings.string_from_ptr(data, length), allocator)
+        err = _parse_response(res, strings.string_from_ptr(data, length))
         if err != nil { return }
     }
     return
