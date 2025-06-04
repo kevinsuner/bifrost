@@ -436,6 +436,7 @@ test_parse_url :: proc(t: ^testing.T) {
         testing.expect_value(t, url.fragment, test.url.fragment)
         testing.expect_value(t, url.raw, test.url.raw)
         testing.expect_value(t, url.port, test.url.port)
+        testing.expect_value(t, err, test.err)
     }
 }
 
