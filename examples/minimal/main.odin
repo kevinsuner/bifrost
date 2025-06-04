@@ -14,15 +14,13 @@ main :: proc() {
 
     context.allocator = mem.arena_allocator(&arena)
 
-    url := new(bifrost.Url)
-    url_err := bifrost.parse_url(url, "https://dummyjson.com/test")
-    if url_err != .None {
-        fmt.printf("parse_url failed: %v\n", url_err)
+    url, parse_err := bifrost.parse_url("https://dummyjson.com/test")
+    if parse_err != .None {
+        fmt.printf("parse_url failed: %v\n", parse_err)
         return
     }
     
-    res := new(bifrost.Response)
-    req_err := bifrost.make_request(res, .Get, url, nil, nil)
+    res, req_err := bifrost.make_request(.Get, url, nil, nil)
     if req_err != nil {
         fmt.printf("make_request failed: %v\n", req_err)
         return
