@@ -6,7 +6,7 @@ import "core:mem"
 
 @(test)
 test_has_control_character :: proc(t: ^testing.T) {
-    tests := []struct{str: string, err: URL_Error}{
+    tests := []struct{str: string, err: Url_Error}{
         {
             "https://foo.com/bar?foo=bar#foo",
             .None,
@@ -31,7 +31,7 @@ test_has_control_character :: proc(t: ^testing.T) {
 
 @(test)
 test_extract_scheme :: proc(t: ^testing.T) {
-    tests := []struct{str, res, rest: string, err: URL_Error}{
+    tests := []struct{str, res, rest: string, err: Url_Error}{
         {
             "http://foo.com/bar?foo=bar#foo",
             "http",
@@ -103,7 +103,7 @@ test_extract_scheme :: proc(t: ^testing.T) {
 
 @(test)
 test_extract_host :: proc(t: ^testing.T) {
-    tests := []struct{str, res, rest: string, err: URL_Error}{
+    tests := []struct{str, res, rest: string, err: Url_Error}{
         {
             "//foo.com/bar?foo=bar#foo",
             "foo.com",
@@ -245,7 +245,7 @@ test_percent_encode_str :: proc(t: ^testing.T) {
 
 @(test)
 test_url_parse :: proc(t: ^testing.T) {
-    tests := []struct{url: ^Url, raw_url: string, err: Request_Error}{
+    tests := []struct{url: ^Url, raw_url: string, err: Client_Error}{
         {
             &{"http", "foo.com", "/bar", "?foo=bar&bar=foo", "#foo", "http://foo.com/bar?foo=bar&bar=foo#foo", 80},
             "http://foo.com/bar?foo=bar&bar=foo#foo",

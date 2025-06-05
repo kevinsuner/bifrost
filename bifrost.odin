@@ -9,15 +9,15 @@ import "openssl"
 
 DEFAULT_RESPONSE_LENGTH :: 1024
 
-Request_Error :: union #shared_nil {
-    URL_Error,
+Client_Error :: union #shared_nil {
+    Url_Error,
     Response_Error,
-    SSL_Error,
+    Ssl_Error,
     mem.Allocator_Error,
     net.Network_Error,
 }
 
-URL_Error :: enum {
+Url_Error :: enum {
     None,
     // Found an ASCII control character
     Found_Control_Character,
@@ -41,7 +41,7 @@ Response_Error :: enum {
     Invalid_Header,
 }
 
-SSL_Error :: enum {
+Ssl_Error :: enum {
     None,
     // Found an OpenSSL error
     Unknown,
@@ -96,7 +96,7 @@ Response :: struct {
 
 // Reports whether `str` contains any ASCII control character
 @(private)
-_has_control_character :: proc(str: string) -> (err: URL_Error) {
+_has_control_character :: proc(str: string) -> (err: Url_Error) {
     for _, i in str {
         if str[i] < ' ' || str[i] == 0x7f {
             return .Found_Control_Character
@@ -107,7 +107,7 @@ _has_control_character :: proc(str: string) -> (err: URL_Error) {
 
 // Extracts the HTTP scheme part from `str`
 @(private)
-_extract_scheme :: proc(str: string) -> (res, rest: string, err: URL_Error) {
+_extract_scheme :: proc(str: string) -> (res, rest: string, err: Url_Error) {
     for c, i in str {
         switch {
         case 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z':
@@ -136,7 +136,7 @@ _extract_scheme :: proc(str: string) -> (res, rest: string, err: URL_Error) {
 
 // Extracts the HTTP host part from `str`
 @(private)
-_extract_host :: proc(str: string) -> (res, rest: string, err: URL_Error) {
+_extract_host :: proc(str: string) -> (res, rest: string, err: Url_Error) {
     s := strings.trim_prefix(str, "//")
     hyphen_pos, period_pos: int
 
@@ -240,7 +240,7 @@ Inputs:
 - allocator: A custom memory allocator (default is context.allocator)
 
 Returns:
-- url: A pointer to the `Url`
+- url: A pointer to an `Url` struct
 - err: An optional `mem.Allocator_Error` if one occured, `nil` otherwise
 */
 url_init :: proc(allocator := context.allocator) -> (url: ^Url, err: mem.Allocator_Error) #optional_allocator_error {
@@ -252,7 +252,7 @@ url_init :: proc(allocator := context.allocator) -> (url: ^Url, err: mem.Allocat
 Frees an initialized `Url` struct
 
 Inputs:
-- url: A pointer to the `Url`
+- url: A pointer to an `Url` struct
 - allocator: A custom memory allocator (default is context.allocator)
 
 Returns:
@@ -266,14 +266,14 @@ url_free :: proc(url: ^Url, allocator := context.allocator) -> (err: mem.Allocat
 Parses `raw_url` into an `Url` struct
 
 Inputs:
-- url: A pointer to the `Url`
+- url: A pointer to an `Url` struct
 - raw_url: The input string
 - allocator: A custom memory allocator (default is context.allocator)
 
 Returns:
-- err: An error from `URL_Error` or `mem.Allocator_Error`, `nil` otherwise
+- err: An error from `Url_Error` or `mem.Allocator_Error`, `nil` otherwise
 */
-url_parse :: proc(url: ^Url, raw_url: string, allocator := context.allocator) -> (err: Request_Error) {
+url_parse :: proc(url: ^Url, raw_url: string, allocator := context.allocator) -> (err: Client_Error) {
     _has_control_character(raw_url) or_return
 
     rest: string
@@ -306,7 +306,7 @@ Inputs:
 - allocator: A custom memory allocator (default is context.allocator)
 
 Returns:
-- req: A pointer to the `Request` struct
+- req: A pointer to a `Request` struct
 - err: An optional `mem.Allocator_Error` if one occured, `nil` otherwise
 */
 request_init :: proc(method: Request_Method, url: ^Url, body: []u8, allocator := context.allocator) -> (req: ^Request, err: mem.Allocator_Error) #optional_allocator_error {
@@ -409,9 +409,9 @@ Inputs:
 - allocator: A custom memory allocator (default is context.allocator)
 
 Returns:
-- err: An error from `SSL_Error`, `Response_Error`, `net.Network_Error` or `mem.Allocator_Error`, `nil` otherwise
+- err: An error from `Response_Error`, `Ssl_Error`, `mem.Allocator_Error` or `net.Network_Error`, `nil` otherwise
 */
-request_do :: proc(req: ^Request, length := DEFAULT_RESPONSE_LENGTH, allocator := context.allocator) -> (err: Request_Error) {
+request_do :: proc(req: ^Request, length := DEFAULT_RESPONSE_LENGTH, allocator := context.allocator) -> (err: Client_Error) {
     ctx := openssl.SSL_CTX_new(openssl.TLS_client_method())
     defer openssl.SSL_CTX_free(ctx)
     if ctx == nil {
