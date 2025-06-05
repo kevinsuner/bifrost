@@ -2,6 +2,7 @@
 package bifrost
 
 import "core:testing"
+import "core:mem"
 
 @(test)
 test_has_control_character :: proc(t: ^testing.T) {
@@ -168,267 +169,284 @@ test_extract_host :: proc(t: ^testing.T) {
 
 @(test)
 test_percent_encode_str :: proc(t: ^testing.T) {
-    tests := []struct{str, res: string}{
+    tests := []struct{str, res: string, err: mem.Allocator_Error}{
         {
             "/bar?foo=bar #foo",
             "/bar?foo=bar%20#foo",
+            .None,
         },
         {
             "/bar?foo=bar;#foo",
             "/bar?foo=bar%3B#foo",
+            .None,
         },
         {
             "/bar?foo=bar:#foo",
             "/bar?foo=bar%3A#foo",
+            .None,
         },
         {
             "/bar?foo=bar[#foo",
             "/bar?foo=bar%5B#foo",
+            .None,
         },
         {
             "/bar?foo=bar]#foo",
             "/bar?foo=bar%5D#foo",
+            .None,
         },
         {
             "/bar?foo=bar{#foo",
             "/bar?foo=bar%7B#foo",
+            .None,
         },
         {
             "/bar?foo=bar}#foo",
             "/bar?foo=bar%7D#foo",
+            .None,
         },
         {
             "/bar?foo=bar<#foo",
             "/bar?foo=bar%3C#foo",
+            .None,
         },
         {
             "/bar?foo=bar>#foo",
             "/bar?foo=bar%3E#foo",
+            .None,
         },
         {
             "/bar?foo=bar\\#foo",
             "/bar?foo=bar%5C#foo",
+            .None,
         },
         {
             "/bar?foo=bar^#foo",
             "/bar?foo=bar%5E#foo",
+            .None,
         },
         {
             "/bar?foo=bar`#foo",
             "/bar?foo=bar%60#foo",
+            .None,
         },
         {
             `/bar?foo=bar"#foo`,
             "/bar?foo=bar%22#foo",
+            .None,
         },
     }
     for test, _ in tests {
-        testing.expect_value(t, _percent_encode_str(test.str), test.res)
+        res, err := _percent_encode_str(test.str)
+        testing.expect_value(t, res, test.res)
+        testing.expect_value(t, err, test.err)
     }
 }
 
 @(test)
-test_parse_url :: proc(t: ^testing.T) {
-    tests := []struct{str: string, url: ^Url, err: URL_Error}{
+test_url_parse :: proc(t: ^testing.T) {
+    tests := []struct{url: ^Url, raw_url: string, err: Request_Error}{
         {
-            "http://foo.com/bar?foo=bar&bar=foo#foo",
             &{"http", "foo.com", "/bar", "?foo=bar&bar=foo", "#foo", "http://foo.com/bar?foo=bar&bar=foo#foo", 80},
-            .None,
+            "http://foo.com/bar?foo=bar&bar=foo#foo",
+            nil,
         },
         {
-            "https://foo.com/bar?foo=bar&bar=foo#foo",
             &{"https", "foo.com", "/bar", "?foo=bar&bar=foo", "#foo", "https://foo.com/bar?foo=bar&bar=foo#foo", 443},
-            .None,
+            "https://foo.com/bar?foo=bar&bar=foo#foo",
+            nil,
         },
         {
-            "https://foo.bar.com/bar?foo=bar#foo",
             &{"https", "foo.bar.com", "/bar", "?foo=bar", "#foo", "https://foo.bar.com/bar?foo=bar#foo", 443},
-            .None,
+            "https://foo.bar.com/bar?foo=bar#foo",
+            nil,
         },
         {
-            "https://foo.com/bar?foo=bar#foo",
             &{"https", "foo.com", "/bar", "?foo=bar", "#foo", "https://foo.com/bar?foo=bar#foo", 443},
-            .None,
+            "https://foo.com/bar?foo=bar#foo",
+            nil,
         },
         {
-            "https://foo.com/bar?foo=bar #foo",
             &{"https", "foo.com", "/bar", "?foo=bar%20", "#foo", "https://foo.com/bar?foo=bar #foo", 443},
-            .None,
+            "https://foo.com/bar?foo=bar #foo",
+            nil,
         },
         {
-            "https://foo.com/bar?foo=bar;#foo",
             &{"https", "foo.com", "/bar", "?foo=bar%3B", "#foo", "https://foo.com/bar?foo=bar;#foo", 443},
-            .None,
+            "https://foo.com/bar?foo=bar;#foo",
+            nil,
         },
         {
-            "https://foo.com/bar?foo=bar:#foo",
             &{"https", "foo.com", "/bar", "?foo=bar%3A", "#foo", "https://foo.com/bar?foo=bar:#foo", 443},
-            .None,
+            "https://foo.com/bar?foo=bar:#foo",
+            nil,
         },
         {
-            "https://foo.com/bar?foo=bar[#foo",
             &{"https", "foo.com", "/bar", "?foo=bar%5B", "#foo", "https://foo.com/bar?foo=bar[#foo", 443},
-            .None,
+            "https://foo.com/bar?foo=bar[#foo",
+            nil,
         },
         {
-            "https://foo.com/bar?foo=bar]#foo",
             &{"https", "foo.com", "/bar", "?foo=bar%5D", "#foo", "https://foo.com/bar?foo=bar]#foo", 443},
-            .None,
+            "https://foo.com/bar?foo=bar]#foo",
+            nil,
         },
         {
-            "https://foo.com/bar?foo=bar{#foo",
             &{"https", "foo.com", "/bar", "?foo=bar%7B", "#foo", "https://foo.com/bar?foo=bar{#foo", 443},
-            .None,
+            "https://foo.com/bar?foo=bar{#foo",
+            nil,
         },
         {
-            "https://foo.com/bar?foo=bar}#foo",
             &{"https", "foo.com", "/bar", "?foo=bar%7D", "#foo", "https://foo.com/bar?foo=bar}#foo", 443},
-            .None,
+            "https://foo.com/bar?foo=bar}#foo",
+            nil,
         },
         {
-            "https://foo.com/bar?foo=bar<#foo",
             &{"https", "foo.com", "/bar", "?foo=bar%3C", "#foo", "https://foo.com/bar?foo=bar<#foo", 443},
-            .None,
+            "https://foo.com/bar?foo=bar<#foo",
+            nil,
         },
         {
-            "https://foo.com/bar?foo=bar>#foo",
             &{"https", "foo.com", "/bar", "?foo=bar%3E", "#foo", "https://foo.com/bar?foo=bar>#foo", 443},
-            .None,
+            "https://foo.com/bar?foo=bar>#foo",
+            nil,
         },
         {
-            "https://foo.com/bar?foo=bar\\#foo",
             &{"https", "foo.com", "/bar", "?foo=bar%5C", "#foo", "https://foo.com/bar?foo=bar\\#foo", 443 },
-            .None,
+            "https://foo.com/bar?foo=bar\\#foo",
+            nil,
         },
         {
-            "https://foo.com/bar?foo=bar^#foo",
             &{"https", "foo.com", "/bar", "?foo=bar%5E", "#foo", "https://foo.com/bar?foo=bar^#foo", 443},
-            .None,
+            "https://foo.com/bar?foo=bar^#foo",
+            nil,
         },
         {
-            "https://foo.com/bar?foo=bar`#foo",
             &{"https", "foo.com", "/bar", "?foo=bar%60", "#foo", "https://foo.com/bar?foo=bar`#foo", 443},
-            .None,
+            "https://foo.com/bar?foo=bar`#foo",
+            nil,
         },
         {
-            `https://foo.com/bar?foo=bar"#foo`,
             &{"https", "foo.com", "/bar", "?foo=bar%22", "#foo", `https://foo.com/bar?foo=bar"#foo`, 443},
-            .None,
+            `https://foo.com/bar?foo=bar"#foo`,
+            nil,
         },
         {
-            "https://foo.com/bar?foo=bar",
             &{"https", "foo.com", "/bar", "?foo=bar", "", "https://foo.com/bar?foo=bar", 443},
-            .None,
+            "https://foo.com/bar?foo=bar",
+            nil,
         },
         {
-            "https://foo.com/bar#foo",
             &{"https", "foo.com", "/bar", "", "#foo", "https://foo.com/bar#foo", 443},
-            .None,
+            "https://foo.com/bar#foo",
+            nil,
         },
         {
-            "https://foo.com/bar",
             &{"https", "foo.com", "/bar", "", "", "https://foo.com/bar", 443},
-            .None,
+            "https://foo.com/bar",
+            nil,
         },
         {
-            "https://foo.com/",
             &{"https", "foo.com", "/", "", "", "https://foo.com/", 443},
-            .None,
+            "https://foo.com/",
+            nil,
         },
         {
-            "https://foo.com?foo=bar",
             &{"https", "foo.com", "", "?foo=bar", "", "https://foo.com?foo=bar", 443},
-            .None,
+            "https://foo.com?foo=bar",
+            nil,
         },
         {
-            "https://foo.com#foo",
             &{"https", "foo.com", "", "", "#foo", "https://foo.com#foo", 443},
-            .None,
+            "https://foo.com#foo",
+            nil,
         },
         {
+            &{},
             "0https://foo.com/bar?foo=bar#foo",
-            &{},
             .Scheme_Not_Found,
         },
         {
+            &{},
             "+https://foo.com/bar?foo=bar#foo",
-            &{},
             .Scheme_Not_Found,
         },
         {
+            &{},
             "-https://foo.com/bar?foo=bar#foo",
-            &{},
             .Scheme_Not_Found,
         },
         {
+            &{},
             ".https://foo.com/bar?foo=bar#foo",
-            &{},
             .Scheme_Not_Found,
         },
         {
+            &{},
             "://foo.com/bar?foo=bar#foo",
-            &{},
             .Scheme_Not_Found,
         },
         {
+            &{},
             " https://foo.com/bar?foo=bar#foo",
-            &{},
             .Scheme_Not_Found,
         },
         {
+            &{},
             "ht tps://foo.com/bar?foo=bar#foo",
-            &{},
             .Scheme_Not_Found,
         },
         {
+            &{},
             "ht_tps://foo.com/bar?foo=bar#foo",
-            &{},
             .Scheme_Not_Found,
         },
         {
-            "ws://foo.com/bar?foo=bar#foo",
             &{"ws", "", "", "", "", "", 0},
+            "ws://foo.com/bar?foo=bar#foo",
             .Invalid_Scheme,
         },
         {
+            &{"https", "", "", "", "", "", 443},
             "https://.foo.com/bar?foo=bar#foo",
-            &{"https", "", "", "", "", "", 443},
             .Host_Not_Found,
         },
         {
+            &{"https", "", "", "", "", "", 443},
             "https://foo.com./bar?foo=bar#foo",
-            &{"https", "", "", "", "", "", 443},
             .Host_Not_Found,
         },
         {
+            &{"https", "", "", "", "", "", 443},
             "https://-foo.com/bar?foo=bar#foo",
-            &{"https", "", "", "", "", "", 443},
             .Host_Not_Found,
         },
         {
+            &{"https", "", "", "", "", "", 443},
             "https://foo.com-/bar?foo=bar#foo",
-            &{"https", "", "", "", "", "", 443},
             .Host_Not_Found,
         },
         {
+            &{"https", "", "", "", "", "", 443},
             "https://foo/bar?foo=bar#foo",
-            &{"https", "", "", "", "", "", 443},
             .Host_Not_Found,
         },
         {
+            &{"https", "", "", "", "", "", 443},
             "https://f oo.com/bar?foo=bar#foo",
-            &{"https", "", "", "", "", "", 443},
             .Host_Not_Found,
         },
         {
-            "https://f_oo.com/bar?foo=bar#foo",
             &{"https", "", "", "", "", "", 443},
+            "https://f_oo.com/bar?foo=bar#foo",
             .Host_Not_Found,
         },
+
     }
     for test, _ in tests {
-        url, err := parse_url(test.str)
-        defer free(url)
+        url := url_init()
+        defer url_free(url)
+        err := url_parse(url, test.raw_url)
         testing.expect_value(t, url.scheme, test.url.scheme)
         testing.expect_value(t, url.host, test.url.host)
         testing.expect_value(t, url.path, test.url.path)

@@ -1,5 +1,6 @@
 package bifrost
 
+import "core:mem"
 import "core:net"
 import "core:strings"
 import "core:fmt"
@@ -12,6 +13,7 @@ Request_Error :: union #shared_nil {
     URL_Error,
     Response_Error,
     SSL_Error,
+    mem.Allocator_Error,
     net.Network_Error,
 }
 
@@ -169,8 +171,8 @@ _extract_host :: proc(str: string) -> (res, rest: string, err: URL_Error) {
 
 // Escapes specific characters from `str` using percent-encoding
 @(private)
-_percent_encode_str :: proc(str: string, allocator := context.allocator) -> (res: string) {
-    sb := strings.builder_make(allocator)
+_percent_encode_str :: proc(str: string, allocator := context.allocator) -> (res: string, err: mem.Allocator_Error) {
+    sb := strings.builder_make(allocator) or_return
     defer strings.builder_destroy(&sb)
 
     for c, _ in str {
@@ -218,43 +220,72 @@ _percent_encode_str :: proc(str: string, allocator := context.allocator) -> (res
             strings.write_rune(&sb, c)
         }
     }
-    return strings.to_string(sb)
+    return strings.to_string(sb), .None
 }
 
 /*
-Parses `str` into an `^Url` struct
+Initializes a `Url` struct
+
+*Allocates using provided allocator*
 
 Inputs:
-- str: The input string
 - allocator: A custom memory allocator (default is context.allocator)
 
 Returns:
-- res: A pointer to a `^Url` struct
-- err: An enumerated value from `URL_Error`
+- url: A pointer to the `Url`
+- err: An optional `mem.Allocator_Error` if one occured, `nil` otherwise
 */
-parse_url :: proc(str: string, allocator := context.allocator) -> (res: ^Url, err: URL_Error) {
-    _has_control_character(str) or_return
-
-    res = new(Url)
-    rest: string
-
-    res.scheme, rest = _extract_scheme(str) or_return
-    if res.scheme != "http" && res.scheme != "https" {
-        return res, .Invalid_Scheme
-    }
-    res.port = 80 if res.scheme == "http" else 443
-
-    res.host, rest = _extract_host(rest) or_return
-    rest = _percent_encode_str(rest, allocator)
-
-    res.fragment, _ = strings.substring(rest, strings.index(rest, "#"), len(rest))
-    res.query, _ = strings.substring(rest, strings.index(rest, "?"), len(rest) - len(res.fragment))
-    res.path, _ = strings.substring(rest, 0, len(rest) - len(res.query) - len(res.fragment))
-
-    res.raw = str
+url_init :: proc(allocator := context.allocator) -> (url: ^Url, err: mem.Allocator_Error) #optional_allocator_error {
+    url = new(Url, allocator) or_return
     return
 }
 
+/*
+Frees an initialized `Url` struct
+
+Inputs:
+- url: A pointer to the `Url`
+- allocator: A custom memory allocator (default is context.allocator)
+
+Returns:
+- err: An optional `mem.Allocator_Error` if one occured, `nil` otherwise
+*/
+url_free :: proc(url: ^Url, allocator := context.allocator) -> (err: mem.Allocator_Error) {
+    free(url, allocator) or_return
+    return
+}
+
+/*
+Parses `raw_url` into an `Url` struct
+
+Inputs:
+- url: A pointer to the `Url`
+- raw_url: The input string
+- allocator: A custom memory allocator (default is context.allocator)
+
+Returns:
+- err: An error from `URL_Error` or `mem.Allocator_Error`, `nil` otherwise
+*/
+url_parse :: proc(url: ^Url, raw_url: string, allocator := context.allocator) -> (err: Request_Error) {
+    _has_control_character(raw_url) or_return
+
+    rest: string
+    url.scheme, rest = _extract_scheme(raw_url) or_return
+    if url.scheme != "http" && url.scheme != "https" {
+        return .Invalid_Scheme
+    }
+    url.port = 80 if url.scheme == "http" else 443
+
+    url.host, rest = _extract_host(rest) or_return
+    rest = _percent_encode_str(rest, allocator) or_return
+
+    url.fragment, _ = strings.substring(rest, strings.index(rest, "#"), len(rest))
+    url.query, _ = strings.substring(rest, strings.index(rest, "?"), len(rest) - len(url.fragment))
+    url.path, _ = strings.substring(rest, 0, len(rest) - len(url.query) - len(url.fragment))
+
+    url.raw = raw_url
+    return
+}
 
 // Builds and HTTP request string
 @(private)
