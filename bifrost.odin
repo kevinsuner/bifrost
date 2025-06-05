@@ -251,8 +251,7 @@ Returns:
 - err: An optional `mem.Allocator_Error` if one occured, `nil` otherwise
 */
 url_free :: proc(url: ^Url, allocator := context.allocator) -> (err: mem.Allocator_Error) {
-    free(url, allocator) or_return
-    return
+    return free(url, allocator)
 }
 
 /*
