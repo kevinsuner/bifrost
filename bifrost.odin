@@ -78,6 +78,14 @@ Url :: struct {
     port:       u16,
 }
 
+Request :: struct {
+    headers:    map[string]string,
+    body:       []u8,
+    method:     Request_Method,
+    url:        ^Url,
+    res:        ^Response,
+}
+
 Response :: struct {
     headers:    map[string]string,
     version:    string,
@@ -286,33 +294,70 @@ url_parse :: proc(url: ^Url, raw_url: string, allocator := context.allocator) ->
     return
 }
 
-// Builds and HTTP request string
+/*
+Initializes a `Request` struct
+
+*Allocates using provided allocator*
+
+Inputs:
+- method: An enumerated value from `Request_Method`
+- url: A pointer to an `Url` struct
+- body: A slice of bytes representing the request body
+- allocator: A custom memory allocator (default is context.allocator)
+
+Returns:
+- req: A pointer to the `Request` struct
+- err: An optional `mem.Allocator_Error` if one occured, `nil` otherwise
+*/
+request_init :: proc(method: Request_Method, url: ^Url, body: []u8, allocator := context.allocator) -> (req: ^Request, err: mem.Allocator_Error) #optional_allocator_error {
+    req = new(Request, allocator) or_return
+    req.headers = make(map[string]string, 0, allocator) or_return
+    req.body = body
+    req.method = method
+    req.url = url
+    req.res = new(Response, allocator) or_return
+    return
+}
+
+/*
+Frees an initialized `Request` struct
+
+Inputs:
+- req: A pointer to a `Request` struct
+- allocator: A custom memory allocator (default is context.allocator)
+
+Returns:
+- err: An optional `mem.Allocator_Error` if one occured, `nil` otherwise
+*/
+request_free :: proc(req: ^Request, allocator := context.allocator) -> (err: mem.Allocator_Error) {
+    delete(req.headers) or_return
+    delete(req.res.headers) or_return
+    free(req.res, allocator) or_return
+    return free(req, allocator)
+}
+
+// Builds an HTTP request string using an initialized `Request` struct
 @(private)
-_build_request :: proc(
-    method: Request_Method,
-    url: ^Url,
-    headers: map[string]string,
-    body: []u8,
-    allocator := context.allocator,
-) -> (res: []u8) {
-    sb := strings.builder_make(0, (len(url.raw) + cap(headers) + len(body)) * 2, allocator)
+_request_to_str :: proc(req: ^Request, allocator := context.allocator) -> (res: string, err: mem.Allocator_Error) #optional_allocator_error {
+    sb := strings.builder_make(0, (len(req.url.raw) + cap(req.headers) + len(req.body)) * 2, allocator) or_return
     defer strings.builder_destroy(&sb)
 
-    fmt.sbprintf(&sb, "%s %s%s%s HTTP/1.1\r\n", _request_method_to_str[method], url.path, url.query, url.fragment)
-    fmt.sbprintf(&sb, "Host: %s\r\nConnection: close\r\n", url.host)
-    for key, val in headers {
+    fmt.sbprintf(&sb, "%s %s%s%s HTTP/1.1\r\n", _request_method_to_str[req.method], req.url.path, req.url.query, req.url.fragment)
+    fmt.sbprintf(&sb, "Host: %s\r\nConnection: close\r\n", req.url.host)
+    for key, val in req.headers {
         fmt.sbprintf(&sb, "%s: %s\r\n", key, val)
     }
 
     strings.write_string(&sb, "\r\n")
-    strings.write_bytes(&sb, body)
-    return sb.buf[:]
+    strings.write_bytes(&sb, req.body)
+
+    res = strings.to_string(sb)
+    return
 }
 
-// Parses `data` into an `^Response` struct
+// Parses `data` into an initialized `Response` struct
 @(private)
-_parse_response :: proc(data: string, allocator := context.allocator) -> (res: ^Response, err: Response_Error) {
-    res = new(Response)
+_response_parse :: proc(res: ^Response, data: string, allocator := context.allocator) -> (err: Response_Error) {
     str := string(data)
     found_delimiter: bool
 
@@ -324,19 +369,19 @@ _parse_response :: proc(data: string, allocator := context.allocator) -> (res: ^
 
         if res.status == 0 {
             if !strings.contains(line, "HTTP") {
-                return res, .Status_Line_Not_Found
+                return .Status_Line_Not_Found
             }
 
             arr := strings.split(line, " ", allocator)
-            defer delete(arr)
+            defer delete(arr, allocator)
             if len(arr) < 3 {
-                return res, .Invalid_Status_Line
+                return .Invalid_Status_Line
             }
             res.version, res.reason = arr[0], arr[2]
 
             res.status = u16(strconv.parse_uint(arr[1]) or_else 0)
             if res.status == 0 {
-                return res, .Invalid_Status
+                return .Invalid_Status
             }
         } else {
             if found_delimiter {
@@ -345,9 +390,9 @@ _parse_response :: proc(data: string, allocator := context.allocator) -> (res: ^
             }
 
             arr := strings.split_n(line, ":", 2, allocator)
-            defer delete(arr)
+            defer delete(arr, allocator)
             if len(arr) < 2 || len(arr[0]) == 0 {
-                return res, .Invalid_Header
+                return .Invalid_Header
             }
             res.headers[arr[0]] = strings.trim(arr[1], " ")
         }
@@ -356,63 +401,51 @@ _parse_response :: proc(data: string, allocator := context.allocator) -> (res: ^
 }
 
 /*
-Makes an HTTP request using OpenSSL and parses the response into a `^Response` struct
+Performs an HTTP request using OpenSSL and parses the response into an initialized `Response` struct
 
 Inputs:
-- method: An enumerated value from `Request_Method`
-- url: A pointer to an initialized `^Url` struct
-- headers: A string map representing the request headers
-- body: A slice of bytes representing the request body
+- req: A pointer to a `Request` struct
 - length: The expected length of the response (default is 1kb)
 - allocator: A custom memory allocator (default is context.allocator)
 
 Returns:
-- res: A pointer to a `^Response` struct
-- err: An enumerated value from `SSL_Error` or `Response_Error`
+- err: An error from `SSL_Error`, `Response_Error`, `net.Network_Error` or `mem.Allocator_Error`, `nil` otherwise
 */
-make_request :: proc(
-    method: Request_Method,
-    url: ^Url,
-    headers: map[string]string,
-    body: []u8,
-    length := DEFAULT_RESPONSE_LENGTH,
-    allocator := context.allocator,
-) -> (res: ^Response, err: Request_Error) {
+request_do :: proc(req: ^Request, length := DEFAULT_RESPONSE_LENGTH, allocator := context.allocator) -> (err: Request_Error) {
     ctx := openssl.SSL_CTX_new(openssl.TLS_client_method())
     defer openssl.SSL_CTX_free(ctx)
     if ctx == nil {
-        return res, .Unknown
+        return .Unknown
     }
 
     ssl := openssl.SSL_new(ctx)
     defer openssl.SSL_free(ssl)
     if ssl == nil {
-        return res, .Unknown
+        return .Unknown
     }
 
-    ep4 := net.resolve_ip4(fmt.tprintf("%s:%d", url.host, url.port)) or_return
+    ep4 := net.resolve_ip4(fmt.tprintf("%s:%d", req.url.host, req.url.port)) or_return
     sockfd := net.dial_tcp_from_endpoint(ep4) or_return
     defer net.close(sockfd)
 
     if openssl.SSL_set_fd(ssl, i32(sockfd)) <= 0 {
-        return res, .Unknown
+        return .Unknown
     }
 
-    openssl.SSL_set_tlsext_host_name(ssl, strings.clone_to_cstring(url.host))
+    openssl.SSL_set_tlsext_host_name(ssl, strings.clone_to_cstring(req.url.host))
     if openssl.SSL_connect(ssl) <= 0 {
-        return res, .Unknown
+        return .Unknown
     }
 
-    request := _build_request(method, url, headers, body, allocator)
+    request := _request_to_str(req, allocator) or_return
     if openssl.SSL_write(ssl, raw_data(request), i32(len(request))) <= 0 {
-        return res, .Unknown
+        return .Unknown
     }
 
     data := make([^]u8, length)
     defer free(data)
     for openssl.SSL_read(ssl, data, i32(length - 1)) > 0 {
-        res, err = _parse_response(strings.string_from_ptr(data, length), allocator)
-        if err != nil { return }
+        _response_parse(req.res, strings.string_from_ptr(data, length), allocator) or_return
     }
     return
 }

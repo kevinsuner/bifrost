@@ -459,7 +459,7 @@ test_url_parse :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_build_request :: proc(t: ^testing.T) {
+test_request_to_str :: proc(t: ^testing.T) {
     tests := []struct{method: Request_Method, url: ^Url, headers: map[string]string, body, res: string}{
         {
             .Post,
@@ -480,7 +480,7 @@ test_build_request :: proc(t: ^testing.T) {
             &{"https", "foo.com", "/", "", "", "https://foo.com/", 443},
             nil,
             `{"foo": "bar"}`,
-            "POST / HTTP/1.1\r\nHost: foo.com\r\nConnection: close\r\n\r\n" + `{"foo": "bar"}`
+            "POST / HTTP/1.1\r\nHost: foo.com\r\nConnection: close\r\n\r\n" + `{"foo": "bar"}`,
         },
         {
             .Get,
@@ -561,69 +561,70 @@ test_build_request :: proc(t: ^testing.T) {
         },
     }
     for test, _ in tests {
-        res := _build_request(test.method, test.url, test.headers, transmute([]u8)test.body)
-        defer delete(test.headers)
-        testing.expect_value(t, string(res), test.res)
+        req := request_init(test.method, test.url, transmute([]u8)test.body)
+        defer request_free(req)
+        req.headers = test.headers
+        testing.expect_value(t, _request_to_str(req), test.res)
     }
 }
 
 @(test)
-test_parse_response :: proc(t: ^testing.T) {
+test_response_parse :: proc(t: ^testing.T) {
     body : string : `{"foo": "bar"}`
-    tests := []struct{buf: string, res: ^Response, err: Response_Error}{
+    tests := []struct{res: ^Response, data: string, err: Response_Error}{
         {
-            "HTTP/1.1 200 OK\r\nHost: foo.com\r\nConnection: close\r\n\r\n" + body,
             &{{"Host" = "foo.com", "Connection" = "close"}, "HTTP/1.1", "OK", transmute([]u8)body, 200},
+            "HTTP/1.1 200 OK\r\nHost: foo.com\r\nConnection: close\r\n\r\n" + body,
             .None,
         },
         {
-            "HTTP/1.1 200 OK\r\nHost: foo.com\r\nConnection: close\r\n\r\n",
             &{{"Host" = "foo.com", "Connection" = "close"}, "HTTP/1.1", "OK", {}, 200},
+            "HTTP/1.1 200 OK\r\nHost: foo.com\r\nConnection: close\r\n\r\n",
             .None,
         },
         {
-            "HTTP/1.1 200 OK\r\nHost: foo.com\r\nConnection: \r\n\r\n",
             &{{"Host" = "foo.com", "Connection" = ""}, "HTTP/1.1", "OK", {}, 200},
+            "HTTP/1.1 200 OK\r\nHost: foo.com\r\nConnection: \r\n\r\n",
             .None,
         },
         {
-            "HTTP/1.1 200 OK\r\n\r\n",
             &{nil, "HTTP/1.1", "OK", {}, 200},
+            "HTTP/1.1 200 OK\r\n\r\n",
             .None,
         },
         {
-            "Host: foo.com\r\nConnection: close\r\n\r\n",
             &{nil, "", "", {}, 0},
+            "Host: foo.com\r\nConnection: close\r\n\r\n",
             .Status_Line_Not_Found,
         },
         {
-            "HTTP/1.1 200\r\nHost: foo.com\r\nConnection: close\r\n\r\n",
             &{nil, "", "", {}, 0},
+            "HTTP/1.1 200\r\nHost: foo.com\r\nConnection: close\r\n\r\n",
             .Invalid_Status_Line,
         },
         {
-            "HTTP/1.1 200 OK\r\n: foo.com\r\n\r\n",
             &{nil, "HTTP/1.1", "OK", {}, 200},
+            "HTTP/1.1 200 OK\r\n: foo.com\r\n\r\n",
             .Invalid_Header,
         },
         {
-            "HTTP/1.1 200 OK\r\n:\r\n\r\n",
             &{nil, "HTTP/1.1", "OK", {}, 200},
+            "HTTP/1.1 200 OK\r\n:\r\n\r\n",
             .Invalid_Header,
         },
     }
     for test, _ in tests {
-        res, err := _parse_response(test.buf)
-        defer free(res)
-        defer delete(res.headers)
+        req := request_init(.Get, &{"https", "foo.com", "/", "", "", "https://foo.com/", 443}, nil)
+        defer request_free(req)
         defer delete(test.res.headers)
-        for key, val in res.headers {
+        err := _response_parse(req.res, test.data)
+        for key, val in req.res.headers {
             testing.expect_value(t, val, test.res.headers[key])
         }
-        testing.expect_value(t, res.version, test.res.version)
-        testing.expect_value(t, res.reason, test.res.reason)
-        testing.expect_value(t, string(res.body), string(test.res.body))
-        testing.expect_value(t, res.status, test.res.status)
+        testing.expect_value(t, req.res.version, test.res.version)
+        testing.expect_value(t, req.res.reason, test.res.reason)
+        testing.expect_value(t, string(req.res.body), string(test.res.body))
+        testing.expect_value(t, req.res.status, test.res.status)
         testing.expect_value(t, err, test.err)
     }
 }
