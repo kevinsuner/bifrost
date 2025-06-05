@@ -179,7 +179,7 @@ _extract_host :: proc(str: string) -> (res, rest: string, err: Url_Error) {
 
 // Escapes specific characters from `str` using percent-encoding
 @(private)
-_percent_encode_str :: proc(str: string, allocator := context.allocator) -> (res: string, err: mem.Allocator_Error) {
+_percent_encode_str :: proc(str: string, allocator := context.allocator) -> (res: string, err: mem.Allocator_Error) #optional_allocator_error {
     sb := strings.builder_make(allocator) or_return
     defer strings.builder_destroy(&sb)
 
@@ -228,7 +228,9 @@ _percent_encode_str :: proc(str: string, allocator := context.allocator) -> (res
             strings.write_rune(&sb, c)
         }
     }
-    return strings.to_string(sb), .None
+
+    res = strings.to_string(sb)
+    return
 }
 
 /*
