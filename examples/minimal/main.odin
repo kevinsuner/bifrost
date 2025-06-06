@@ -26,6 +26,7 @@ main :: proc() {
     err = bifrost.request_do(req)
     if err != nil {
         fmt.printf("request_do failed: %v\n", err)
+        return
     }
 
     fmt.printf("req.res: %v\n", req.res)
