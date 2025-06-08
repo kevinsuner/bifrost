@@ -2,9 +2,30 @@ package openssl
 
 import "core:c"
 
-foreign import lib {
-    "system:ssl",
-    "system:crypto",
+SHARED :: #config(OPENSSL_SHARED, false)
+
+when ODIN_OS == .Windows {
+    when SHARED {
+        foreign import lib {
+            "./includes/windows/libssl.lib",
+            "./includes/windows/libcrypto.lib",
+        }
+    } else {
+        foreign import lib {
+            "./includes/windows/libssl_static.lib",
+            "./includes/windows/libcrypto_static.lib",
+            "system:ws2_32.lib",
+            "system:gdi32.lib",
+            "system:advapi32.lib",
+            "system:crypt32.lib",
+            "system:user32.lib",
+        }
+    }
+} else {
+    foreign import lib {
+        "system:ssl",
+        "system:crypto",
+    }
 }
 
 SSL_CTRL_SET_TLSEXT_HOSTNAME    :: 55
