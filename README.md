@@ -7,11 +7,9 @@ A simple HTTP/1.1 client written in Odin (besides the SSL stuff).
 The package depends on [OpenSSL](https://github.com/openssl/openssl) to make
 HTTPS requests.
 
-I've only tested it on my Linux machine, which had OpenSSL preinstalled, but you
-can get it through a package manager usually as `libssl`.
-
-For Windows, I'll be adding a copy of these libraries to the repo itself, but I
-want to figure out how to add them without it being a hassle. 
+I've tested it on Linux, macOS and Windows, the first two had OpenSSL preinstalled,
+but you can get it through a package manager usually as `libssl`. For Windows, the
+repository itself contains a copy of these libraries.
 
 ## Example
 
