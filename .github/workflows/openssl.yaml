@@ -4,7 +4,7 @@
 name: OpenSSL
 on:
   push:
-    paths: [".github/workflows/openssl.yml"]
+    paths: [".github/workflows/openssl.yaml"]
     branches: ["main"]
   workflow_dispatch:
   schedule:
