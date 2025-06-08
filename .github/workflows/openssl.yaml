@@ -5,7 +5,7 @@ name: OpenSSL
 on:
   push:
     paths: [".github/workflows/openssl.yaml"]
-    branches: ["main"]
+    branches: ["master"]
   workflow_dispatch:
   schedule:
     - cron: 0 20 * * *
