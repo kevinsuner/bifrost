@@ -43,8 +43,16 @@ Response_Error :: enum {
 
 Ssl_Error :: enum {
     None,
-    // Found an OpenSSL error
-    Unknown,
+    // Failed to create a new SSL_CTX object
+    SSL_CTX_Failed,
+    // Failed to create a new SSL structure
+    SSL_New_Failed,
+    // Failed to set the file descriptor
+    SSL_Set_FD_Failed,
+    // Failed to perform TLS/SSL handshake
+    SSL_Connect_Failed,
+    // Failed to perform the write operation
+    SSL_Write_Failed,
 }
 
 Request_Method :: enum {
@@ -360,44 +368,40 @@ _request_to_str :: proc(req: ^Request, allocator := context.allocator) -> (res: 
 // Parses `data` into an initialized `Response` struct
 @(private)
 _response_parse :: proc(res: ^Response, data: string, allocator := context.allocator) -> (err: Response_Error) {
-    str := string(data)
-    found_delimiter: bool
+    status_line_end := strings.index(data, "\r\n")
+    status_line := data[:status_line_end]
+    if !strings.contains(status_line, "HTTP") {
+        return .Status_Line_Not_Found
+    }
 
-    for line in strings.split_lines_iterator(&str) {
-        if line == "" {
-            found_delimiter = true
-            continue
+    status_line_parts := strings.split(status_line, " ", allocator)
+    defer delete(status_line_parts, allocator)
+    if len(status_line_parts) < 3 {
+        return .Invalid_Status_Line
+    }
+    res.version = status_line_parts[0]
+    res.reason = status_line_parts[2]
+    res.status = u16(strconv.parse_uint(status_line_parts[1]) or_else 0)
+    if res.status == 0 {
+        return .Invalid_Status
+    }
+
+    headers_end := strings.index(data, "\r\n\r\n")
+    headers := data[status_line_end + 2:headers_end]
+    for line in strings.split_lines(headers) {
+        header_parts := strings.split_n(line, ":", 2, allocator)
+        defer delete(header_parts, allocator)
+        if len(header_parts) < 2 || len(header_parts[0]) == 0 {
+            return .Invalid_Header
         }
+        res.headers[header_parts[0]] = strings.trim(header_parts[1], " ")
+    }
 
-        if res.status == 0 {
-            if !strings.contains(line, "HTTP") {
-                return .Status_Line_Not_Found
-            }
-
-            arr := strings.split(line, " ", allocator)
-            defer delete(arr, allocator)
-            if len(arr) < 3 {
-                return .Invalid_Status_Line
-            }
-            res.version, res.reason = arr[0], arr[2]
-
-            res.status = u16(strconv.parse_uint(arr[1]) or_else 0)
-            if res.status == 0 {
-                return .Invalid_Status
-            }
-        } else {
-            if found_delimiter {
-                res.body = transmute([]u8)data[strings.last_index(data, "\n")+1:]
-                break
-            }
-
-            arr := strings.split_n(line, ":", 2, allocator)
-            defer delete(arr, allocator)
-            if len(arr) < 2 || len(arr[0]) == 0 {
-                return .Invalid_Header
-            }
-            res.headers[arr[0]] = strings.trim(arr[1], " ")
-        }
+    content_length := strconv.parse_uint(res.headers["Content-Length"]) or_else 0
+    if content_length != 0 {
+        body_start := headers_end + 4
+        body_end := body_start + int(content_length)
+        res.body = transmute([]u8)data[body_start:body_end]
     }
     return
 }
@@ -417,13 +421,13 @@ request_do :: proc(req: ^Request, length := DEFAULT_RESPONSE_LENGTH, allocator :
     ctx := openssl.SSL_CTX_new(openssl.TLS_client_method())
     defer openssl.SSL_CTX_free(ctx)
     if ctx == nil {
-        return .Unknown
+        return .SSL_CTX_Failed
     }
 
     ssl := openssl.SSL_new(ctx)
     defer openssl.SSL_free(ssl)
     if ssl == nil {
-        return .Unknown
+        return .SSL_New_Failed
     }
 
     ep4 := net.resolve_ip4(fmt.tprintf("%s:%d", req.url.host, req.url.port)) or_return
@@ -431,24 +435,29 @@ request_do :: proc(req: ^Request, length := DEFAULT_RESPONSE_LENGTH, allocator :
     defer net.close(sockfd)
 
     if openssl.SSL_set_fd(ssl, i32(sockfd)) <= 0 {
-        return .Unknown
+        return .SSL_Set_FD_Failed
     }
 
     openssl.SSL_set_tlsext_host_name(ssl, strings.clone_to_cstring(req.url.host))
     if openssl.SSL_connect(ssl) <= 0 {
-        return .Unknown
+        return .SSL_Connect_Failed
     }
 
     request := _request_to_str(req, allocator) or_return
     if openssl.SSL_write(ssl, raw_data(request), i32(len(request))) <= 0 {
-        return .Unknown
+        return .SSL_Write_Failed
     }
 
-    data := make([^]u8, length)
-    defer free(data)
-    for openssl.SSL_read(ssl, data, i32(length - 1)) > 0 {
-        _response_parse(req.res, strings.string_from_ptr(data, length), allocator) or_return
+    chunk := make([]u8, length, allocator)
+    defer delete(chunk, allocator)
+    data := make([dynamic]u8, 0, allocator)
+    defer delete(data)
+
+    for {
+        bytes := openssl.SSL_read(ssl, &chunk[0], i32(length))
+        if bytes <= 0 { break }
+        append(&data, ..chunk[:bytes])
     }
-    return
+    return _response_parse(req.res, string(data[:]), allocator)
 }
 
