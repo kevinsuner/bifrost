@@ -23,7 +23,7 @@ import "core:fmt"
 import bifrost "../.." // Change the path.
 
 main :: proc() {
-    buf := make([]u8, 4*mem.Kilobyte)
+    buf := make([]u8, 8*mem.Kilobyte)
     defer delete(buf)
 
     arena: mem.Arena
