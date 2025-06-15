@@ -388,7 +388,9 @@ _response_parse :: proc(res: ^Response, data: string, allocator := context.alloc
 
     headers_end := strings.index(data, "\r\n\r\n")
     headers := data[status_line_end + 2:headers_end]
-    for line in strings.split_lines(headers) {
+    lines := strings.split_lines(headers, allocator)
+    defer delete(lines, allocator)
+    for line in lines {
         header_parts := strings.split_n(line, ":", 2, allocator)
         defer delete(header_parts, allocator)
         if len(header_parts) < 2 || len(header_parts[0]) == 0 {

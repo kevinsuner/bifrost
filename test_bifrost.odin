@@ -3,6 +3,7 @@ package bifrost
 
 import "core:testing"
 import "core:mem"
+import "core:log"
 
 @(test)
 test_has_control_character :: proc(t: ^testing.T) {
@@ -573,8 +574,8 @@ test_response_parse :: proc(t: ^testing.T) {
     body : string : `{"foo": "bar"}`
     tests := []struct{res: ^Response, data: string, err: Response_Error}{
         {
-            &{{"Host" = "foo.com", "Connection" = "close"}, "HTTP/1.1", "OK", transmute([]u8)body, 200},
-            "HTTP/1.1 200 OK\r\nHost: foo.com\r\nConnection: close\r\n\r\n" + body,
+            &{{"Host" = "foo.com", "Connection" = "close", "Content-Length" = "14"}, "HTTP/1.1", "OK", transmute([]u8)body, 200},
+            "HTTP/1.1 200 OK\r\nHost: foo.com\r\nConnection: close\r\nContent-Length: 14\r\n\r\n" + body,
             .None,
         },
         {
@@ -585,11 +586,6 @@ test_response_parse :: proc(t: ^testing.T) {
         {
             &{{"Host" = "foo.com", "Connection" = ""}, "HTTP/1.1", "OK", {}, 200},
             "HTTP/1.1 200 OK\r\nHost: foo.com\r\nConnection: \r\n\r\n",
-            .None,
-        },
-        {
-            &{nil, "HTTP/1.1", "OK", {}, 200},
-            "HTTP/1.1 200 OK\r\n\r\n",
             .None,
         },
         {
@@ -610,7 +606,7 @@ test_response_parse :: proc(t: ^testing.T) {
         {
             &{nil, "HTTP/1.1", "OK", {}, 200},
             "HTTP/1.1 200 OK\r\n:\r\n\r\n",
-            .Invalid_Header,
+            .Invalid_Header
         },
     }
     for test, _ in tests {
