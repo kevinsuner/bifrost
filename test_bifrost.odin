@@ -3,7 +3,6 @@ package bifrost
 
 import "core:testing"
 import "core:mem"
-import "core:log"
 
 @(test)
 test_has_control_character :: proc(t: ^testing.T) {
