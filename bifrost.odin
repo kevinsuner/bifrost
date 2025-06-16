@@ -31,13 +31,11 @@ Url_Error :: enum {
 
 Response_Error :: enum {
     None,
-    // Unable to find response's status line
-    Status_Line_Not_Found,
-    // Status line is wrongly formatted
+    // Status line is malformed
     Invalid_Status_Line,
     // Status code is not in the 2XX-5XX range
     Invalid_Status,
-    // Header is wrongly formatted
+    // Header is malformed
     Invalid_Header,
 }
 
@@ -369,16 +367,12 @@ _request_to_str :: proc(req: ^Request, allocator := context.allocator) -> (res: 
 @(private)
 _response_parse :: proc(res: ^Response, data: string, allocator := context.allocator) -> (err: Response_Error) {
     status_line_end := strings.index(data, "\r\n")
-    status_line := data[:status_line_end]
-    if !strings.contains(status_line, "HTTP") {
-        return .Status_Line_Not_Found
-    }
-
-    status_line_parts := strings.split(status_line, " ", allocator)
+    status_line_parts := strings.split(data[:status_line_end], " ", allocator)
     defer delete(status_line_parts, allocator)
-    if len(status_line_parts) < 3 {
+    if len(status_line_parts) < 3 || status_line_parts[0] != "HTTP/1.1" {
         return .Invalid_Status_Line
     }
+
     res.version = status_line_parts[0]
     res.reason = status_line_parts[2]
     res.status = u16(strconv.parse_uint(status_line_parts[1]) or_else 0)
@@ -387,11 +381,10 @@ _response_parse :: proc(res: ^Response, data: string, allocator := context.alloc
     }
 
     headers_end := strings.index(data, "\r\n\r\n")
-    headers := data[status_line_end + 2:headers_end]
-    lines := strings.split_lines(headers, allocator)
-    defer delete(lines, allocator)
-    for line in lines {
-        header_parts := strings.split_n(line, ":", 2, allocator)
+    headers := strings.split_lines(data[status_line_end + 2:headers_end])
+    defer delete(headers, allocator)
+    for header in headers {
+        header_parts := strings.split_n(header, ":", 2, allocator)
         defer delete(header_parts, allocator)
         if len(header_parts) < 2 || len(header_parts[0]) == 0 {
             return .Invalid_Header
@@ -400,11 +393,9 @@ _response_parse :: proc(res: ^Response, data: string, allocator := context.alloc
     }
 
     content_length := strconv.parse_uint(res.headers["Content-Length"]) or_else 0
-    if content_length != 0 {
-        body_start := headers_end + 4
-        body_end := body_start + int(content_length)
-        res.body = transmute([]u8)data[body_start:body_end]
-    }
+    body_start := headers_end + 4
+    body_end := body_start + int(content_length)
+    res.body = transmute([]u8)data[body_start:body_end] if content_length != 0 else {}
     return
 }
 

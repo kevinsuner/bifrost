@@ -590,7 +590,7 @@ test_response_parse :: proc(t: ^testing.T) {
         {
             &{nil, "", "", {}, 0},
             "Host: foo.com\r\nConnection: close\r\n\r\n",
-            .Status_Line_Not_Found,
+            .Invalid_Status_Line,
         },
         {
             &{nil, "", "", {}, 0},
